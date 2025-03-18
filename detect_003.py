@@ -2,7 +2,7 @@
 
 """Example module for Hailo Detection."""
 
-# v0.2
+# v0.3
 
 import pygame, sys
 from pygame.locals import *
@@ -161,21 +161,9 @@ def extract_detections(hailo_output, w, h, class_names, threshold=0.5):
     return results
 
 def draw_objects(request):
-    global show_detects
+    global show_detects, mp4_anno
     current_detections = detections
-    if current_detections and show_detects == 1:
-        with MappedArray(request, "main") as m:
-            for class_name, bbox, score in current_detections:
-                x0, y0, x1, y1 = bbox
-                label = f"{class_name} %{int(score * 100)}"
-                cv2.rectangle(m.array, (x0, y0), (x1, y1), (0, 255, 0, 0), 4)
-                cv2.putText(m.array, label, (x0 + 5, y0 + 45),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0, 0), 3, cv2.LINE_AA)
-
-# apply timestamp to videos
-def apply_timestamp(request):
-  global mp4_anno
-  if mp4_anno == 1:
+    if mp4_anno == 1: # show timestamp on video
       timestamp = time.strftime("%Y/%m/%d %T")
       with MappedArray(request, "main") as m:
           lst = list(origin)
@@ -184,6 +172,14 @@ def apply_timestamp(request):
           end_point = tuple(lst)
           cv2.rectangle(m.array, origin, end_point, (0,0,0), -1) 
           cv2.putText(m.array, timestamp, origin, font, scale, colour, thickness)
+    if current_detections and show_detects == 1: # show detection box
+        with MappedArray(request, "main") as m:
+            for class_name, bbox, score in current_detections:
+                x0, y0, x1, y1 = bbox
+                label = f"{class_name} %{int(score * 100)}"
+                cv2.rectangle(m.array, (x0, y0), (x1, y1), (0, 255, 0, 0), 4)
+                cv2.putText(m.array, label, (x0 + 5, y0 + 45),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0, 0), 3, cv2.LINE_AA)
 
 def Camera_Version():
     global cam1
@@ -239,12 +235,11 @@ if __name__ == "__main__":
         picam2.configure(config)
         encoder = H264Encoder(2000000)
         circular = CircularOutput2(buffer_duration_ms=5000)
-        picam2.pre_callback = apply_timestamp
         picam2.start_preview(Preview.QTGL, x=0, y=0, width=480, height=480)
         picam2.start_recording(encoder, circular)
         picam2.title_fields = ["ExposureTime"]
         encoding = False
-        if show_detects == 1:
+        if show_detects == 1 or mp4_anno == 1:
             picam2.pre_callback = draw_objects
         picam2.set_controls({"AnalogueGain": gain})
         if mode == 0:
