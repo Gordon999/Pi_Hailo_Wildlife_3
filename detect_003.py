@@ -2,7 +2,7 @@
 
 """Example module for Hailo Detection."""
 
-# v0.16
+# v0.2
 
 import pygame, sys
 from pygame.locals import *
@@ -283,7 +283,7 @@ if __name__ == "__main__":
                         if not encoding and freeram > ram_limit:
                             now = datetime.datetime.now()
                             timestamp = now.strftime("%y%m%d_%H%M%S")
-                            circular.open_output(PyavOutput(h_user + "/Videos/" + timestamp +".mp4"))
+                            circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
                             encoding = True
                             print("New  Detection",timestamp,objects[d])
                             rec_led.on()
@@ -308,6 +308,7 @@ if __name__ == "__main__":
 
             # stop recording
             if encoding and (time.monotonic() - startrec > v_length or freeram <= ram_limit):
+                time.sleep(5)
                 now = datetime.datetime.now()
                 timestamp2 = now.strftime("%y%m%d_%H%M%S")
                 print("Stopped Record", timestamp2)
