@@ -2,7 +2,7 @@
 
 """Example module for Hailo Detection."""
 
-# v0.4
+# v0.5
 
 import pygame, sys
 from pygame.locals import *
@@ -49,7 +49,7 @@ scale     = 1
 thickness = 2
 
 # shutdown time
-sd_hour = 20
+sd_hour = 19
 sd_mins = 0
 auto_sd = 0  # set to 1 to shutdown at set time
 
@@ -359,7 +359,7 @@ if __name__ == "__main__":
                     # check current hour and shutdown
                     now = datetime.datetime.now()
                     sd_time = now.replace(hour=sd_hour, minute=sd_mins, second=0, microsecond=0)
-                    if now >= sd_time and time.monotonic() - startup > 300 and synced == 1:
+                    if now >= sd_time and time.monotonic() - start_up > 300 and synced == 1:
                         # move jpgs and mp4s to USB if present
                         time.sleep(2 * mp4_timer)
                         USB_Files  = []
