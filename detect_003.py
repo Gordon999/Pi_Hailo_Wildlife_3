@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.48
+# v0.49
 
 import argparse
 import cv2
@@ -53,8 +53,7 @@ v_height     = 1088  # video height
 v_length     = 15    # seconds, minimum video length
 pre_frames   = 5     # seconds, defines length of pre-detection buffer
 fps          = 30    # video frame rate
-mp4_fps      = 30    # mp4 frame rate
-mp4_timer    = 10    # seconds, convert h264s to mp4s after this time if no detections
+mp4_timer    = 10    # seconds, move mp4s to SD Card after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 
@@ -283,9 +282,9 @@ if synced == 1 and sd_tim != 0:
     text(2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
 else:
     text(2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
-text(3,13,0,5,"P Frames")
+text(3,13,0,5,"Pre S")
 text(3,13,2,4,str(pre_frames))
-text(4,13,0,5,"V Length")
+text(4,13,0,5,"Video S")
 text(4,13,2,4,str(v_length))
 time.sleep(10)
 
