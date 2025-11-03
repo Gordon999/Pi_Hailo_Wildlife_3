@@ -33,7 +33,7 @@ v_width and v_height are set for a Pi GS camera, you may need to change to suit 
 
 Runs a pre-capture buffer of approx 5 seconds
 
-you can set the objects to detect in line 28, objects = ["cat","bear","bird"], the objects must be in coco.txt file
+you can set the objects to detect in line 41, objects = ["cat","bear","bird"], the objects must be in coco.txt file
 
 Copy detect_003.py into /home/USERNAME/picamera2/examples/hailo/
 
