@@ -2,6 +2,8 @@
 
 Pi5 + Hailo HAT + PI Camera to capture Wildlife videos
 
+Note at present you have to use BOOKWORM not TRIXIE with the Hailo hat
+
 ## Screenshot...
 
 ![screenshot](screenshot.jpg)
