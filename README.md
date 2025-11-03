@@ -1,6 +1,6 @@
 # Pi_Hailo_Wildlife_3
 
-Pi5 + Hailo HAT + PI Camera to capture Wildlife videos
+Pi5 + Hailo HAT + PI Camera to capture Wildlife videos in MP4 directly.
 
 Note at present you have to use BOOKWORM not TRIXIE with the Hailo hat
 
