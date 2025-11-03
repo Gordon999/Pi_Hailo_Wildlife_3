@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.49
+# v0.50
 
 import argparse
 import cv2
@@ -149,7 +149,7 @@ pre_frames = defaults[14]
 v_length   = defaults[15]
 
 # define colors
-global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor
+global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
 greyColor   = pygame.Color(130, 130, 130)
 dgryColor   = pygame.Color( 64,  64,  64)
 whiteColor  = pygame.Color(250, 250, 250)
@@ -157,11 +157,11 @@ redColor    = pygame.Color(200,   0,   0)
 dredColor   = pygame.Color(130,   0,   0)
 greenColor  = pygame.Color(  0, 255,   0)
 yellowColor = pygame.Color(255, 255,   0)
-
+blackColor  = pygame.Color(  0,   0,   0)
 # draw a button
 def button(col,row,bw,bh,bColor):
     global screen
-    colors = [greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor]
+    colors = [greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor]
     Color = colors[bColor]
     if screen == 2 and row > 12:
         row -= 1
@@ -179,7 +179,7 @@ def text(col,row,line,bColor,msg):
     global bh,bw,ft,screen
     if screen == 2 and row > 11:
         row -= 1
-    colors = [greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor]
+    colors = [greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor]
     Color = colors[bColor]
     bx = col * bw
     by = (row * bh) + (line * int(ft/2))
@@ -188,7 +188,7 @@ def text(col,row,line,bColor,msg):
             pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+2,bw - 4,ft))
         elif msg == "________":
             pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+2,bw - 4,ft))
-        elif (row == 12 and col == 0) or (row == 12 and col == 5):
+        elif (row == 12 and col == 0) or (row == 12 and col == 5) or row == 1:
             pygame.draw.rect(windowSurfaceObj,(10,0,0),Rect(bx+2,by+2,bw - 3,ft))
         else:
             pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(bx+2,by+2,bw - 4,ft))
@@ -238,6 +238,7 @@ for y in range(1,5):
     button(y,13,bw,bh,0)
 
 text(0,0,1,5,"< PREV")
+text(0,1,1,5,"Initialising  ")
 text(1,0,1,5,"NEXT >")
 if len(Pics) > 0:
     text(4,0,0,5,"Show")
@@ -316,6 +317,8 @@ if len(Pics) > 0:
         USB_Files  = (os.listdir(m_user))
         if len(USB_Files) > 0:
             text(3,0,1,4,"  to USB")
+else:
+    text(0,1,1,0,"            ")
 pygame.display.update()
 
 def extract_detections(hailo_output, w, h, class_names, threshold=0.5):
@@ -424,11 +427,12 @@ if __name__ == "__main__":
                 controls2 = {'FrameRate': fps}
             config = picam2.create_preview_configuration(main, lores=lores, controls=controls2)
             picam2.configure(config)
-            encoder = H264Encoder(2000000)
+            encoder = H264Encoder(6000000)
             pref = pre_frames * 1000
             circular = CircularOutput2(buffer_duration_ms=pref)
             picam2.pre_callback = apply_timestamp
             picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
+            picam2.title_fields = ["ExposureTime"]
             picam2.start_recording(encoder, circular)
             encoding = False
             if show_detects == 2:
