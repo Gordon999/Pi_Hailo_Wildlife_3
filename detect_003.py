@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.50
+# v0.51
 
 import argparse
 import cv2
@@ -32,6 +32,7 @@ import time
 import os
 import glob
 import datetime
+from datetime import timedelta
 import shutil
 from gpiozero import LED
 import pygame, sys
@@ -50,26 +51,27 @@ show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 
 log          = 0     # set to 1 to make a log of detections in detect_log.txt
 v_width      = 1088  # video width
 v_height     = 1088  # video height
-v_length     = 15    # seconds, minimum video length
-pre_frames   = 5     # seconds, defines length of pre-detection buffer
+v_length     = 15    # seconds, minimum video length, minimum value 5
+pre_frames   = 5     # seconds, defines length of pre-detection buffer, minimum value 1
 fps          = 30    # video frame rate
 mp4_timer    = 10    # seconds, move mp4s to SD Card after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
+bitrate      = 10000000 # video bitrate
 
 # default camera settings, note these will be overwritten if changed whilst running
-mode         = 1     # camera mode, 0-3 see modes, 1 = normal
+mode         = 1     # camera mode,     0 to 3,  see modes below, 1 = normal
 speed        = 1000  # manual shutter speed in mS
-gain         = 0     # set camera gain, 0 = auto
-meter        = 2     # set meter mode, 0-2 see meters, 2 = matrix
-brightness   = 0     # set brightness
-contrast     = 8     # set contrast
-ev           = 0     # set eV
-sharpness    = 10    # set sharpness
-saturation   = 10    # set saturation
-awb          = 0     # set awb mode (see awbs below) 0 = auto
-red          = 10    # set red, only in awb custom mode
-blue         = 10    # set blue, only in awb custom mode
+gain         = 0     # set camera gain, 0 to 64, 0 = auto
+meter        = 2     # set meter mode,  0 to 2,  see meters below, 2 = matrix
+brightness   = 0     # set brightness,  0 to 20
+contrast     = 8     # set contrast,    0 to 20
+ev           = 0     # set eV,        -20 to 20        
+sharpness    = 10    # set sharpness    0 to 16
+saturation   = 10    # set saturation   0 to 32
+awb          = 0     # set awb mode     0 to 6,  see awbs below, 0 = auto
+red          = 10    # set red,         1 to 80, only in awb custom mode
+blue         = 10    # set blue,        1 to 80, only in awb custom mode
 modes        = ['manual','normal','short','long']
 meters       = ["Center","Spot","Matrix"]
 awbs         = ['auto','tungsten','fluorescent','indoor','daylight','cloudy','custom']
@@ -158,6 +160,7 @@ dredColor   = pygame.Color(130,   0,   0)
 greenColor  = pygame.Color(  0, 255,   0)
 yellowColor = pygame.Color(255, 255,   0)
 blackColor  = pygame.Color(  0,   0,   0)
+
 # draw a button
 def button(col,row,bw,bh,bColor):
     global screen
@@ -319,6 +322,7 @@ if len(Pics) > 0:
             text(3,0,1,4,"  to USB")
 else:
     text(0,1,1,0,"            ")
+    text(0,13,1,4,"0")
 pygame.display.update()
 
 def extract_detections(hailo_output, w, h, class_names, threshold=0.5):
@@ -419,7 +423,7 @@ if __name__ == "__main__":
 
         # Configure and start Picamera2.
         with Picamera2() as picam2:
-            main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
+            main  = {'size': (video_w, video_h), 'format': 'XRGB8888'} 
             lores = {'size': (model_w, model_h), 'format': 'RGB888'}
             if cam1 == "imx708":
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
@@ -427,7 +431,7 @@ if __name__ == "__main__":
                 controls2 = {'FrameRate': fps}
             config = picam2.create_preview_configuration(main, lores=lores, controls=controls2)
             picam2.configure(config)
-            encoder = H264Encoder(6000000)
+            encoder = H264Encoder(bitrate)
             pref = pre_frames * 1000
             circular = CircularOutput2(buffer_duration_ms=pref)
             picam2.pre_callback = apply_timestamp
@@ -475,7 +479,7 @@ if __name__ == "__main__":
                 picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
             elif meter == 2:
                 picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
-            
+            sta = time.monotonic()
             # Process each low resolution camera frame.
             while True:
                 # Get free ram space
@@ -507,9 +511,9 @@ if __name__ == "__main__":
                             record = 0
                             if show_detects == 1:
                                 draw_box()
-                            text(5,13,0,6,"________")
+                            text(5,13,1,6,"________")
                             text(5,13,2,6,"________")
-                            text(5,13,1,5,"Recording")
+                            text(5,13,0,5,"Recording")
                             if log == 1:
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -517,6 +521,7 @@ if __name__ == "__main__":
                                     f.write(timestamp + " " + objects[d] + "\n" )
                             # start recording
                             if not encoding and freeram > ram_limit:
+                                sta = time.monotonic()
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
                                 circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
@@ -539,6 +544,11 @@ if __name__ == "__main__":
                                 pic = Pics[p].split("/")
                                 text(0,12,1,4,str(pic[4]))
                                 pygame.display.update()
+            
+                if encoding:
+                    #print(str((time.monotonic() - sta)))
+                    td = timedelta(seconds=int(time.monotonic()-sta))
+                    text(5,13,2,5,str(td))
 
                 # stop recording, if time out or low RAM
                 if encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit):
@@ -620,7 +630,7 @@ if __name__ == "__main__":
                         # check current hour and shutdown
                         now = datetime.datetime.now()
                         sd_time = now.replace(hour=sd_hour, minute=sd_mins, second=0, microsecond=0)
-                        if now >= sd_time and time.monotonic() - start_up > 300 and synced == 1:
+                        if now >= sd_time and time.monotonic() - start_up > 300: # and synced == 1:
                             # move jpgs and mp4s to USB if present
                             time.sleep(2 * mp4_timer)
                             USB_Files  = []
@@ -1041,14 +1051,15 @@ if __name__ == "__main__":
                                 if len(USB_Files) > 0:
                                     text(3,0,1,3,"  to USB")
                                     # make directories (if required)
-                                    if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Videos/") :
-                                        os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Videos/")
-                                    if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Pictures/") :
-                                        os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Pictures/")
+                                    if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Videos") :
+                                        os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Videos")
+                                    if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Pictures") :
+                                        os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Pictures")
                                     usedusb = os.statvfs(m_user + "/" + USB_Files[0] + "/")
                                     USB_storage = ((1 - (usedusb.f_bavail / usedusb.f_blocks)) * 100)
                                 if len(USB_Files) > 0 and USB_storage < 90:
                                     for w in range(0,len(Videos)):
+                                        text(0,13,1,4,str(w+1) + "/" + str(len(Videos)))
                                         vid = Videos[w].split("/")
                                         image = pygame.image.load("/" + vid[1] + "/" + vid[2] + "/Pictures/" + vid[4][:-3] + "jpg")
                                         image = pygame.transform.scale(image,(rw,rh))
@@ -1056,7 +1067,6 @@ if __name__ == "__main__":
                                         pygame.display.update()
                                         if not os.path.exists(m_user + "/" + USB_Files[0] + "/Videos/" + vid[4]):
                                             shutil.move(Videos[w],m_user + "/" + USB_Files[0] + "/Videos/")
-                                            text(0,13,1,4,str(w+1) + "/" + str(len(Videos)))
                                     for w in range(0,len(Pics)):
                                         pic = Pics[w].split("/")
                                         if not os.path.exists(m_user + "/" + USB_Files[0] + "/Pictures/" + pic[4]):
