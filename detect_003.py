@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.51
+# v0.52
 
 import argparse
 import cv2
@@ -229,6 +229,23 @@ if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"
     synced = 1
 else:
     synced = 0
+    
+# find camera version
+def Camera_Version():
+    global cam1
+    if os.path.exists('/run/shm/libcams.txt'):
+        os.rename('/run/shm/libcams.txt', '/run/shm/oldlibcams.txt')
+    os.system("rpicam-vid --list-cameras >> /run/shm/libcams.txt")
+    time.sleep(0.5)
+    # read libcams.txt file
+    camstxt = []
+    with open("/run/shm/libcams.txt", "r") as file:
+        line = file.readline()
+        while line:
+            camstxt.append(line.strip())
+            line = file.readline()
+    cam1 = camstxt[2][4:10]
+Camera_Version()
 
 # Draw Screen
 for y in range(0,6):
@@ -251,19 +268,20 @@ text(0,14,0,5,"EV")
 text(0,14,2,4,str(ev))
 text(1,14,0,5,"Mode")
 text(1,14,2,4,str(modes[mode]))
-text(0,15,0,5,"Meter")
-text(0,15,2,4,str(meters[meter]))
-text(1,15,0,5,"Sharpness")
-text(1,15,2,4,str(sharpness))
-text(2,15,0,5,"Saturation")
-text(2,15,2,4,str(saturation))
-text(3,15,0,5,"AWB")
-text(3,15,2,4,str(awbs[awb]))
-if awb == 6:
-    text(4,15,0,5,"Red")
-    text(4,15,2,4,str(red)[0:3])
-    text(5,15,0,5,"Blue")
-    text(5,15,2,4,str(blue)[0:3])
+if cam1 != "ov9281":
+    text(0,15,0,5,"Meter")
+    text(0,15,2,4,str(meters[meter]))
+    text(1,15,0,5,"Sharpness")
+    text(1,15,2,4,str(sharpness))
+    text(2,15,0,5,"Saturation")
+    text(2,15,2,4,str(saturation))
+    text(3,15,0,5,"AWB")
+    text(3,15,2,4,str(awbs[awb]))
+    if awb == 6:
+        text(4,15,0,5,"Red")
+        text(4,15,2,4,str(red)[0:3])
+        text(5,15,0,5,"Blue")
+        text(5,15,2,4,str(blue)[0:3])
 if mode == 0:
     text(2,14,0,5,"Speed")
     text(2,14,2,4,str(speed))
@@ -376,23 +394,7 @@ def apply_timestamp(request):
           end_point = tuple(lst)
           cv2.rectangle(m.array, origin, end_point, (0,0,0), -1) 
           cv2.putText(m.array, timestamp, origin, font, scale, colour, thickness)
-
-# find camera version
-def Camera_Version():
-    global cam1
-    if os.path.exists('/run/shm/libcams.txt'):
-        os.rename('/run/shm/libcams.txt', '/run/shm/oldlibcams.txt')
-    os.system("rpicam-vid --list-cameras >> /run/shm/libcams.txt")
-    time.sleep(0.5)
-    # read libcams.txt file
-    camstxt = []
-    with open("/run/shm/libcams.txt", "r") as file:
-        line = file.readline()
-        while line:
-            camstxt.append(line.strip())
-            line = file.readline()
-    cam1 = camstxt[2][4:10]
-        
+       
 # main loop
 if __name__ == "__main__":
 
@@ -445,25 +447,31 @@ if __name__ == "__main__":
             picam2.set_controls({"Brightness": brightness/10})
             picam2.set_controls({"Contrast": contrast/10})
             picam2.set_controls({"ExposureValue": ev/10})
-            picam2.set_controls({"Sharpness": sharpness})
-            picam2.set_controls({"Saturation": saturation/10})
-            if awb == 0:
+            if cam1 != "ov9281":
+              picam2.set_controls({"Sharpness": sharpness})
+              picam2.set_controls({"Saturation": saturation/10})
+              if awb == 0:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Auto})
-            elif awb == 1:
+              elif awb == 1:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Tungsten})
-            elif awb == 2:
+              elif awb == 2:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Fluorescent})
-            elif awb == 3:
+              elif awb == 3:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Indoor})
-            elif awb == 4:
+              elif awb == 4:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Daylight})
-            elif awb == 5:
+              elif awb == 5:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Cloudy})
-            elif awb == 6:
+              elif awb == 6:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Custom})
                 cg = (red,blue)
                 picam2.set_controls({"AwbEnable": False,"ColourGains": cg})
-                            
+              if meter == 0:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted})
+              elif meter == 1:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
+              elif meter == 2:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
             if mode == 0:
                 picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
             else:
@@ -473,12 +481,6 @@ if __name__ == "__main__":
                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Short})
                 elif mode == 3:
                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long})
-            if meter == 0:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted})
-            elif meter == 1:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
-            elif meter == 2:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
             sta = time.monotonic()
             # Process each low resolution camera frame.
             while True:
@@ -546,7 +548,6 @@ if __name__ == "__main__":
                                 pygame.display.update()
             
                 if encoding:
-                    #print(str((time.monotonic() - sta)))
                     td = timedelta(seconds=int(time.monotonic()-sta))
                     text(5,13,2,5,str(td))
 
@@ -771,7 +772,7 @@ if __name__ == "__main__":
                                 text(2,14,2,4," ")
                                 
                         # METER MODE
-                        elif bcol == 0 and brow == 15:
+                        elif bcol == 0 and brow == 15 and cam1 != "ov9281":
                             if event.button == 3 or event.button == 4:
                                 meter += 1
                                 if meter > 2:
@@ -836,7 +837,7 @@ if __name__ == "__main__":
                             text(5,14,2,4,str(contrast))
                             
                         # SHARPNESS    
-                        elif bcol == 1 and brow == 15:
+                        elif bcol == 1 and brow == 15 and cam1 != "ov9281":
                             if event.button == 3 or event.button == 4:
                                 sharpness +=1
                                 sharpness = min(sharpness,16)
@@ -847,7 +848,7 @@ if __name__ == "__main__":
                             text(1,15,2,4,str(sharpness))
                         
                         # SATURATION
-                        elif bcol == 2 and brow == 15:
+                        elif bcol == 2 and brow == 15 and cam1 != "ov9281":
                             if event.button == 3 or event.button == 4:
                                 saturation +=1
                                 saturation = min(saturation,32)
@@ -858,7 +859,7 @@ if __name__ == "__main__":
                             text(2,15,2,4,str(saturation))
                         
                         # AWB setting    
-                        elif bcol == 3 and brow == 15:
+                        elif bcol == 3 and brow == 15 and cam1 != "ov9281":
                             if event.button == 3 or event.button == 4:
                                 awb +=1
                                 awb = min(awb,len(awbs)-1)
