@@ -27,6 +27,20 @@ reboot
 
 sudo apt install python3-opencv -y
 
+to autostart at boot if using labwc...
+
+(note: change XXXX to your username)
+
+sudo nano /home/XXXX/.config/labwc/autostart
+
+type in...
+
+/usr/bin/python3 /home/XXXX/detect_003.py
+
+press Ctrl and X, Y, return to save..
+
+Reboot
+
 Captures videos as .mp4 videos
 
 v_width and v_height are set for a Pi GS camera, you may need to change to suit other cameras ....
