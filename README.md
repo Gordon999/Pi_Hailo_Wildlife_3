@@ -2,8 +2,6 @@
 
 Pi5 + Hailo HAT + PI Camera to capture Wildlife videos in MP4 directly.
 
-Note at present you have to use BOOKWORM not TRIXIE with the Hailo hat
-
 ## Screenshot...(Note there is no red squirrel in the objects list, so it sees them as bears or cats !!)
 
 ![screenshot](screenshot.jpg)
