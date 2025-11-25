@@ -17,6 +17,8 @@ and https://github.com/raspberrypi/picamera2/blob/main/examples/pyav_circular_ca
 
 To setup the hailo..
 
+     with Trixie sudo apt install dkms
+
      sudo apt install hailo-all
 
 reboot
