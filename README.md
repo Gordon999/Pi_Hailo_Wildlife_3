@@ -6,7 +6,7 @@ Pi5 + Hailo HAT + PI Camera to capture Wildlife videos in MP4 directly.
 
 ![screenshot](screenshot.jpg)
 
-## My Camera setup...
+## My Camera setup... note l have now changed to the Pi 5" lcd...
 
 ![screenshot](camera.jpg)
 
