@@ -15,11 +15,17 @@ and https://github.com/raspberrypi/picamera2/blob/main/examples/pyav_circular_ca
 
 To setup the hailo..
 
+     sudo apt update && sudo apt full-upgrade -y
+     
+     sudo reboot
+
      with Trixie sudo apt install dkms
 
-     sudo apt install hailo-all
+     with hailo 8L sudo apt install hailo-all
 
-reboot
+     with hailo 10H sudo apt install hailo-h10-all
+
+     sudo reboot
 
      git clone --depth 1 https://github.com/raspberrypi/picamera2
 
