@@ -2,7 +2,7 @@
 
 """Example module for Hailo Detection."""
 
-"""Copyright (c) 2025
+"""Copyright (c) 2026
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.53
+# v0.54
 
 import argparse
 import cv2
@@ -35,6 +35,7 @@ import datetime
 from datetime import timedelta
 import shutil
 from gpiozero import LED
+from gpiozero import PWMOutputDevice
 import pygame, sys
 from pygame.locals import *
 
@@ -44,6 +45,10 @@ objects = ["cat","bear","dog"]
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
 sd_mins      = 0
+
+# buzzer
+e_buzz       = 12
+use_buzz     = 1     # enable buzzer on capture, 1 on starting video, 2 on detection
 
 # set variables
 screen       = 1     # 1 = 1280 x 720, 2 = 800 x 480
@@ -58,6 +63,7 @@ mp4_timer    = 10    # seconds, move mp4s to SD Card after this time if no detec
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 bitrate      = 10000000 # video bitrate
+zmtime       = 30    # zoom timeout
 
 # default camera settings, note these will be overwritten if changed whilst running
 mode         = 1     # camera mode,     0 to 3,  see modes below, 1 = normal
@@ -85,6 +91,9 @@ thickness    = 2
 
 # ram limit
 ram_limit    = 150 # stops recording if ram below this
+
+# optional buzzer
+buzzer=PWMOutputDevice(e_buzz, initial_value=0,frequency=4000)
 
 # setup screen parameters
 if screen == 1: # 1280 x 720
@@ -118,9 +127,9 @@ windowSurfaceObj = pygame.display.set_mode((rw,ch),1, 24)
 pygame.display.set_caption("Review Captures" )
 
 # check Det_configXX.txt exists, if not then write default values
-config_file = "Det_Config5.txt"
+config_file = "Det_Config6.txt"
 if not os.path.exists(config_file):
-    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length]
+    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz]
     with open(config_file, 'w') as f:
         for item in defaults:
             f.write("%s\n" % item)
@@ -149,6 +158,7 @@ sd_hour    = defaults[12]
 sd_mins    = defaults[13]
 pre_frames = defaults[14]
 v_length   = defaults[15]
+use_buzz   = defaults[16]
 
 # detect which hailo
 if os.path.exists ("/run/shm/hailo_m.txt"): 
@@ -233,6 +243,7 @@ m_user   = "/media/" + os.getlogin( )
 start_up = time.monotonic()
 startmp4 = time.monotonic()
 pftimer  = time.monotonic()
+zmtimer  = time.monotonic()
 rec_led  = LED(led)
 rec_led.off()
 p = 0
@@ -240,6 +251,7 @@ Pics = glob.glob(h_user + '/Pictures/*.jpg')
 Pics.sort()
 record = 0
 sd_tim = (sd_hour * 60) + sd_mins
+zoom = 0
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -271,7 +283,7 @@ for y in range(0,6):
     button(y,15,bw,bh,0)
 if screen == 1:
     pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(0,rh + bh,rw,bh))
-for y in range(1,5):
+for y in range(1,6):
     button(y,13,bw,bh,0)
 
 text(0,0,1,5,"< PREV")
@@ -325,10 +337,18 @@ text(3,13,0,5,"Pre S")
 text(3,13,2,4,str(pre_frames))
 text(4,13,0,5,"Video S")
 text(4,13,2,4,str(v_length))
+text(5,13,0,5,"Buzzer")
+if use_buzz == 1:
+    text(5,13,2,4,"ON")
+else:
+    text(5,13,2,4,"OFF")
+    
+# wait for things to settle...
 time.sleep(10)
 
-# show last captured image
-if len(Pics) > 0:
+def show_last():
+  # show last captured image, if present  
+  if len(Pics) > 0:
     p = len(Pics) - 1
     image = pygame.image.load(Pics[p])
     image = pygame.transform.scale(image,(rw,rh))
@@ -355,10 +375,12 @@ if len(Pics) > 0:
         USB_Files  = (os.listdir(m_user))
         if len(USB_Files) > 0:
             text(3,0,1,4,"  to USB")
-else:
+  else:
     text(0,1,1,0,"            ")
     text(0,13,1,4,"0")
-pygame.display.update()
+  pygame.display.update()
+  
+show_last()
 
 def extract_detections(hailo_output, w, h, class_names, threshold=0.5):
     """Extract detections from the HailoRT-postprocess output."""
@@ -399,7 +421,7 @@ def draw_box(): # on stills only
             cv2.putText(frame, label, (x0 + 5, y0 + 45),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0, 0), 2, cv2.LINE_AA)
 
-# apply timestamp to videos
+# apply timestamp to videos, if enabled
 def apply_timestamp(request):
   global mp4_anno
   if mp4_anno == 1:
@@ -511,9 +533,20 @@ if __name__ == "__main__":
                 
                 # Capture frame
                 frame = picam2.capture_array('lores')
-
-                # Run inference on the preprocessed frame
-                results = hailo.run(frame)
+                if zoom == 1:
+                    frame2 = picam2.capture_array('main')
+                    img = cv2.cvtColor(frame2,cv2.COLOR_RGB2BGR)
+                    image = pygame.surfarray.make_surface(img)
+                    cropped = pygame.Surface((rw, rh))
+                    cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)), int((v_height/2)-(rh/2)), rw, rh))
+                    image = pygame.transform.rotate(cropped,int(90))
+                    image = pygame.transform.flip(image,0,1)
+                    windowSurfaceObj.blit(image,(0,bh))
+                    text(0,13,1,4,"ZOOMED")
+                    pygame.display.update()
+                else:
+                    # Run inference on the preprocessed frame
+                    results = hailo.run(frame)
                 
                 # Extract detections from the inference results
                 detections = extract_detections(results, video_w, video_h, class_names, args.score_thresh)
@@ -537,6 +570,9 @@ if __name__ == "__main__":
                             text(5,13,1,6,"________")
                             text(5,13,2,6,"________")
                             text(5,13,0,5,"Recording")
+                            # sound buzzer
+                            if use_buzz == 2:
+                                buzzer.value = 0.01
                             if log == 1:
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -551,6 +587,9 @@ if __name__ == "__main__":
                                 encoding = True
                                 print("New  Detection",timestamp + " " + objects[d])
                                 rec_led.on()
+                                # sound buzzer
+                                if use_buzz == 1:
+                                    buzzer.value = 0.01
                                 # save lores image
                                 cv2.imwrite(h_user + "/Pictures/" + str(timestamp) + ".jpg",frame)
                                 # show captured lores trigger image
@@ -567,6 +606,9 @@ if __name__ == "__main__":
                                 pic = Pics[p].split("/")
                                 text(0,12,1,4,str(pic[4]))
                                 pygame.display.update()
+                                time.sleep(0.5)
+                                if use_buzz == 1:
+                                    buzzer.value = 0
             
                 if encoding:
                     td = timedelta(seconds=int(time.monotonic()-sta))
@@ -582,10 +624,21 @@ if __name__ == "__main__":
                     startmp4 = time.monotonic()
                     rec_led.off()
                     text(0,12,1,4,str(pic[4][:-4] + ".mp4"))
-                    text(5,13,1,4,"          ")
                     text(5,13,0,4,"          ")
+                    text(5,13,1,4,"          ")
                     text(5,13,2,4,"          ")
-
+                    text(5,13,0,5,"Buzzer")
+                    if use_buzz == 1:
+                        text(5,13,2,4,"ON")
+                    else:
+                        text(5,13,2,4,"OFF") 
+                
+                # stop zoom timer
+                if time.monotonic() - zmtimer > zmtime and zoom == 1:
+                    zoom = 0
+                    pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
+                    show_last()
+					    
                 # move mp4s
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
                     startmp4 = time.monotonic()
@@ -690,11 +743,25 @@ if __name__ == "__main__":
                             h = 1
                         if screen == 2 and brow > 11:
                             brow +=1
-    
+                            
+                        # SHOW ZOOM
+                        if bcol == 0 and brow == 13:
+                            zoom +=1
+                            if zoom == 1:
+                                zmtimer  = time.monotonic()
+                            if zoom > 1:
+                                zoom = 0
+                                show_last()
+                                
                         # RECORD VIDEO    
                         if bcol == 1 and brow == 13:
                             if event.button == 3:
                                 record = 1
+                            else:
+                                zoom +=1
+                                if zoom > 1:
+                                    zoom = 0
+                                    show_last()
                                 
                         elif bcol == 2 and brow == 13:
                             # SHUTDOWN TIME
@@ -752,6 +819,18 @@ if __name__ == "__main__":
                                 v_length -=1
                                 v_length = max(v_length,5)
                             text(4,13,2,4,str(v_length))
+                            
+                        # Buzzer ON/OFF
+                        elif bcol == 5 and brow == 13:
+                            if event.button == 3 or event.button == 4:
+                                use_buzz = 1
+                                text(5,13,2,4,"ON")
+                                buzzer.value = 0.01
+                                time.sleep(0.5)
+                                buzzer.value = 0
+                            else:
+                                use_buzz = 0
+                                text(5,13,2,4,"OFF")
                                                     
                         # camera control
                         # EV
@@ -1259,6 +1338,7 @@ if __name__ == "__main__":
                         defaults[13] = sd_mins
                         defaults[14] = pre_frames
                         defaults[15] = v_length 
+                        defaults[16] = use_buzz
                         
                         with open(config_file, 'w') as f:
                             for item in defaults:
