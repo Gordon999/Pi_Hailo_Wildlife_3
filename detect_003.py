@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.52
+# v0.53
 
 import argparse
 import cv2
@@ -150,6 +150,23 @@ sd_mins    = defaults[13]
 pre_frames = defaults[14]
 v_length   = defaults[15]
 
+# detect which hailo
+if os.path.exists ("/run/shm/hailo_m.txt"): 
+    os.remove("/run/shm/hailo_m.txt")
+os.system("hailortcli fw-control identify >> /run/shm/hailo_m.txt")
+hver = ""
+with open("/run/shm/hailo_m.txt", "r") as file:
+    line = file.readline()
+    while line:
+       line = file.readline()
+       if line[0:11] == "Device Arch":
+           hver = line[26:28]
+if hver != "":
+    print("HAILO",hver)
+else:
+    print("No Hailo HAT installed ?")
+    quit()
+    
 # define colors
 global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
 greyColor   = pygame.Color(130, 130, 130)
@@ -403,8 +420,12 @@ if __name__ == "__main__":
 
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(description="Detection Example")
-    parser.add_argument("-m", "--model", help="Path for the HEF model.",
+    if hver == "8L":
+        parser.add_argument("-m", "--model", help="Path for the HEF model.",
                         default="/usr/share/hailo-models/yolov8s_h8l.hef")
+    else:
+        parser.add_argument("-m", "--model", help="Path for the HEF model.",
+                        default="/usr/share/hailo-models/yolov8m_h10.hef")
     parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2/examples/hailo/coco.txt",
                         help="Path to a text file containing labels.")
     parser.add_argument("-s", "--score_thresh", type=float, default=0.50,
