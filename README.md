@@ -21,9 +21,9 @@ To setup the hailo..
 
      with Trixie sudo apt install dkms
 
-     with hailo 8L sudo apt install hailo-all
+     with hailo 8L (Ai HAT+) sudo apt install hailo-all
 
-     with hailo 10H sudo apt install hailo-h10-all
+     with hailo 10H (Ai HAT+2) sudo apt install hailo-h10-all
 
      sudo reboot
 
