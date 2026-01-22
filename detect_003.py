@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.54
+# v0.55
 
 import argparse
 import cv2
@@ -28,6 +28,7 @@ from picamera2.devices import Hailo
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import CircularOutput2, PyavOutput
 from libcamera import controls
+from libcamera import Transform
 import time
 import os
 import glob
@@ -47,8 +48,8 @@ sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
 sd_mins      = 0
 
 # buzzer
-e_buzz       = 12
-use_buzz     = 1     # enable buzzer on capture, 1 on starting video, 2 on detection
+e_buzz       = 12    # gpio ouput for buzzer
+use_buzz     = 1     # sound buzzer on capture, 1 on starting video, 2 on detection
 
 # set variables
 screen       = 1     # 1 = 1280 x 720, 2 = 800 x 480
@@ -59,21 +60,23 @@ v_height     = 1088  # video height
 v_length     = 15    # seconds, minimum video length, minimum value 5
 pre_frames   = 5     # seconds, defines length of pre-detection buffer, minimum value 1
 fps          = 30    # video frame rate
+h_flip       = 0     # set to 1 to flip horizontally 
+v_flip       = 0     # set to 1 to flip vertically
 mp4_timer    = 10    # seconds, move mp4s to SD Card after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
-bitrate      = 10000000 # video bitrate
+bitrate      = 10    # video bitrate in MB
 zmtime       = 30    # zoom timeout
 
 # default camera settings, note these will be overwritten if changed whilst running
-mode         = 1     # camera mode,     0 to 3,  see modes below, 1 = normal
+mode         = 1     # camera mode, 0 to 3, see modes below, 1 = normal
 speed        = 1000  # manual shutter speed in mS
 gain         = 0     # set camera gain, 0 to 64, 0 = auto
 meter        = 2     # set meter mode,  0 to 2,  see meters below, 2 = matrix
 brightness   = 0     # set brightness,  0 to 20
-contrast     = 8     # set contrast,    0 to 20
+contrast     = 9     # set contrast,    0 to 20
 ev           = 0     # set eV,        -20 to 20        
-sharpness    = 10    # set sharpness    0 to 16
+sharpness    = 8     # set sharpness    0 to 16
 saturation   = 10    # set saturation   0 to 32
 awb          = 0     # set awb mode     0 to 6,  see awbs below, 0 = auto
 red          = 10    # set red,         1 to 80, only in awb custom mode
@@ -252,6 +255,7 @@ Pics.sort()
 record = 0
 sd_tim = (sd_hour * 60) + sd_mins
 zoom = 0
+bitrate = bitrate * 1000000
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -474,7 +478,7 @@ if __name__ == "__main__":
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
             else:
                 controls2 = {'FrameRate': fps}
-            config = picam2.create_preview_configuration(main, lores=lores, controls=controls2)
+            config = picam2.create_preview_configuration(main, lores=lores, controls=controls2, transform=Transform(hflip = h_flip, vflip = v_flip))
             picam2.configure(config)
             encoder = H264Encoder(bitrate)
             pref = pre_frames * 1000
