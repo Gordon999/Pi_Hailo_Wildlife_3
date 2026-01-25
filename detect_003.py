@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.55
+# v0.56
 
 import argparse
 import cv2
@@ -810,6 +810,7 @@ if __name__ == "__main__":
                                 pre_frames = max(pre_frames,1)
                             text(3,13,2,1,str(pre_frames))
                             picam2.stop_recording()
+							pref = pre_frames * 1000
                             circular = CircularOutput2(buffer_duration_ms=pref)
                             picam2.start_recording(encoder, circular)
                             #time.sleep(pre_frames)
