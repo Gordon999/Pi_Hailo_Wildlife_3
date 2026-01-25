@@ -1,4 +1,4 @@
-# Pi_Hailo_Wildlife_3
+7# Pi_Hailo_Wildlife_3
 
 Pi5 + Hailo HAT (8L or 10H) + PI Camera to capture Wildlife videos in MP4 directly.
 
@@ -66,3 +66,5 @@ cd /home/USERNAME/picamera2/examples/hailo/
 python3 detect_003.py
 
 When running you will see 2 windows, a live window and a capture review and control window.
+
+right clicking on the 6/13 button (in the image above) will zoom in to help with focussing the camera.
