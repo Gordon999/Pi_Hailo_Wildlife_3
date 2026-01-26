@@ -19,14 +19,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.56
+# v0.57
 
 import argparse
 import cv2
 from picamera2 import MappedArray, Picamera2, Preview
 from picamera2.devices import Hailo
 from picamera2.encoders import H264Encoder
-from picamera2.outputs import CircularOutput2, PyavOutput
 from libcamera import controls
 from libcamera import Transform
 import time
@@ -40,8 +39,11 @@ from gpiozero import PWMOutputDevice
 import pygame, sys
 from pygame.locals import *
 
+# choose detect version
+version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
+
 # detection objects
-objects = ["cat","bear","dog"]
+objects = ["cat","bear","dog","person"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -57,30 +59,32 @@ show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 
 log          = 0     # set to 1 to make a log of detections in detect_log.txt
 v_width      = 1088  # video width
 v_height     = 1088  # video height
-v_length     = 15    # seconds, minimum video length, minimum value 5
-pre_frames   = 5     # seconds, defines length of pre-detection buffer, minimum value 1
+v_length     = 10    # seconds, minimum video length
+pre_frames   = 5     # seconds, defines length of pre-detection buffer
 fps          = 30    # video frame rate
 h_flip       = 0     # set to 1 to flip horizontally 
 v_flip       = 0     # set to 1 to flip vertically
-mp4_timer    = 10    # seconds, move mp4s to SD Card after this time if no detections
+mp4_fps      = 30    # mp4 frame rate
+mp4_timer    = 10    # seconds, convert h264s to mp4s after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 bitrate      = 10    # video bitrate in MB
 zmtime       = 30    # zoom timeout
+crop         = 1     # set to 1 to crop detection area
 
 # default camera settings, note these will be overwritten if changed whilst running
-mode         = 1     # camera mode, 0 to 3, see modes below, 1 = normal
+mode         = 1     # camera mode, 0-3 = manual,normal,short,long
 speed        = 1000  # manual shutter speed in mS
-gain         = 0     # set camera gain, 0 to 64, 0 = auto
-meter        = 2     # set meter mode,  0 to 2,  see meters below, 2 = matrix
-brightness   = 0     # set brightness,  0 to 20
-contrast     = 9     # set contrast,    0 to 20
-ev           = 0     # set eV,        -20 to 20        
-sharpness    = 8     # set sharpness    0 to 16
-saturation   = 10    # set saturation   0 to 32
-awb          = 0     # set awb mode     0 to 6,  see awbs below, 0 = auto
-red          = 10    # set red,         1 to 80, only in awb custom mode
-blue         = 10    # set blue,        1 to 80, only in awb custom mode
+gain         = 0     # set camera gain, 0 = auto
+meter        = 2     # set meter mode, 0-2 = centre,spot,matrix
+brightness   = 0     # set brightness
+contrast     = 8     # set contrast
+ev           = 0     # set eV
+sharpness    = 10    # set sharpness
+saturation   = 10    # set saturation
+awb          = 0     # set awb mode (see awbs below) 0 = auto
+red          = 10    # set red, only in awb custom mode
+blue         = 10    # set blue, only in awb custom mode
 modes        = ['manual','normal','short','long']
 meters       = ["Center","Spot","Matrix"]
 awbs         = ['auto','tungsten','fluorescent','indoor','daylight','cloudy','custom']
@@ -94,6 +98,10 @@ thickness    = 2
 
 # ram limit
 ram_limit    = 150 # stops recording if ram below this
+
+# buzzer
+e_buzz       = 12    # gpio ouput for buzzer
+use_buzz     = 1     # sound buzzer on capture, 1 on starting video, 2 on detection
 
 # optional buzzer
 buzzer=PWMOutputDevice(e_buzz, initial_value=0,frequency=4000)
@@ -120,6 +128,11 @@ else: # 800 x 480
     ch = 480
     ds = 0
     dg = 0
+    
+if version == 2:
+	from picamera2.outputs import CircularOutput
+else:
+    from picamera2.outputs import CircularOutput2, PyavOutput
 
 # set review window position
 x = cw + ds + dg
@@ -179,7 +192,7 @@ if hver != "":
 else:
     print("No Hailo HAT installed ?")
     quit()
-    
+
 # define colors
 global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
 greyColor   = pygame.Color(130, 130, 130)
@@ -240,9 +253,9 @@ def text(col,row,line,bColor,msg):
 # initialise
 Users  = []
 Users.append(os.getlogin())
-user     = Users[0]
-h_user   = "/home/" + os.getlogin( )
-m_user   = "/media/" + os.getlogin( )
+user   = Users[0]
+h_user = "/home/" + os.getlogin( )
+m_user = "/media/" + os.getlogin( )
 start_up = time.monotonic()
 startmp4 = time.monotonic()
 pftimer  = time.monotonic()
@@ -262,7 +275,7 @@ if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"
     synced = 1
 else:
     synced = 0
-    
+
 # find camera version
 def Camera_Version():
     global cam1
@@ -289,7 +302,6 @@ if screen == 1:
     pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(0,rh + bh,rw,bh))
 for y in range(1,6):
     button(y,13,bw,bh,0)
-
 text(0,0,1,5,"< PREV")
 text(0,1,1,5,"Initialising  ")
 text(1,0,1,5,"NEXT >")
@@ -425,7 +437,7 @@ def draw_box(): # on stills only
             cv2.putText(frame, label, (x0 + 5, y0 + 45),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0, 0), 2, cv2.LINE_AA)
 
-# apply timestamp to videos, if enabled
+# apply timestamp to videos
 def apply_timestamp(request):
   global mp4_anno
   if mp4_anno == 1:
@@ -437,11 +449,27 @@ def apply_timestamp(request):
           end_point = tuple(lst)
           cv2.rectangle(m.array, origin, end_point, (0,0,0), -1) 
           cv2.putText(m.array, timestamp, origin, font, scale, colour, thickness)
-       
+
+# find camera version
+def Camera_Version():
+    global cam1
+    if os.path.exists('/run/shm/libcams.txt'):
+        os.rename('/run/shm/libcams.txt', '/run/shm/oldlibcams.txt')
+    os.system("rpicam-vid --list-cameras >> /run/shm/libcams.txt")
+    time.sleep(0.5)
+    # read libcams.txt file
+    camstxt = []
+    with open("/run/shm/libcams.txt", "r") as file:
+        line = file.readline()
+        while line:
+            camstxt.append(line.strip())
+            line = file.readline()
+    cam1 = camstxt[2][4:10]
+        
 # main loop
 if __name__ == "__main__":
 
-    # Get camera version
+    # get camera version
     Camera_Version()
 
     # Parse command-line arguments.
@@ -454,7 +482,7 @@ if __name__ == "__main__":
                         default="/usr/share/hailo-models/yolov8m_h10.hef")
     parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2/examples/hailo/coco.txt",
                         help="Path to a text file containing labels.")
-    parser.add_argument("-s", "--score_thresh", type=float, default=0.50,
+    parser.add_argument("-s", "--score_thresh", type=float, default=0.65,
                         help="Score threshold, must be a float between 0 and 1.")
     args = parser.parse_args()
 
@@ -472,7 +500,7 @@ if __name__ == "__main__":
 
         # Configure and start Picamera2.
         with Picamera2() as picam2:
-            main  = {'size': (video_w, video_h), 'format': 'XRGB8888'} 
+            main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
             lores = {'size': (model_w, model_h), 'format': 'RGB888'}
             if cam1 == "imx708":
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
@@ -480,13 +508,20 @@ if __name__ == "__main__":
                 controls2 = {'FrameRate': fps}
             config = picam2.create_preview_configuration(main, lores=lores, controls=controls2, transform=Transform(hflip = h_flip, vflip = v_flip))
             picam2.configure(config)
-            encoder = H264Encoder(bitrate)
-            pref = pre_frames * 1000
-            circular = CircularOutput2(buffer_duration_ms=pref)
+            if version == 2:
+                encoder = H264Encoder(bitrate, repeat=True)
+                encoder.output = CircularOutput(buffersize = pre_frames * fps)
+                picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
+                picam2.start()
+                picam2.start_encoder(encoder)
+            else:
+                encoder = H264Encoder(bitrate)
+                pref = pre_frames * 1000
+                circular = CircularOutput2(buffer_duration_ms=pref)
+                picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
+                picam2.start_recording(encoder, circular)
             picam2.pre_callback = apply_timestamp
-            picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
             picam2.title_fields = ["ExposureTime"]
-            picam2.start_recording(encoder, circular)
             encoding = False
             if show_detects == 2:
                 picam2.pre_callback = draw_objects
@@ -494,31 +529,25 @@ if __name__ == "__main__":
             picam2.set_controls({"Brightness": brightness/10})
             picam2.set_controls({"Contrast": contrast/10})
             picam2.set_controls({"ExposureValue": ev/10})
-            if cam1 != "ov9281":
-              picam2.set_controls({"Sharpness": sharpness})
-              picam2.set_controls({"Saturation": saturation/10})
-              if awb == 0:
+            picam2.set_controls({"Sharpness": sharpness})
+            picam2.set_controls({"Saturation": saturation/10})
+            if awb == 0:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Auto})
-              elif awb == 1:
+            elif awb == 1:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Tungsten})
-              elif awb == 2:
+            elif awb == 2:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Fluorescent})
-              elif awb == 3:
+            elif awb == 3:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Indoor})
-              elif awb == 4:
+            elif awb == 4:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Daylight})
-              elif awb == 5:
+            elif awb == 5:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Cloudy})
-              elif awb == 6:
+            elif awb == 6:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Custom})
                 cg = (red,blue)
                 picam2.set_controls({"AwbEnable": False,"ColourGains": cg})
-              if meter == 0:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted})
-              elif meter == 1:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
-              elif meter == 2:
-                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
+                            
             if mode == 0:
                 picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
             else:
@@ -528,15 +557,25 @@ if __name__ == "__main__":
                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Short})
                 elif mode == 3:
                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long})
+            if meter == 0:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted})
+            elif meter == 1:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
+            elif meter == 2:
+                picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
             sta = time.monotonic()
             # Process each low resolution camera frame.
             while True:
-                # Get free ram space
+                # get free ram space
                 st = os.statvfs("/run/shm/")
                 freeram = (st.f_bavail * st.f_frsize)/1100000
                 
-                # Capture frame
+                # capture frame
                 frame = picam2.capture_array('lores')
+                if crop == 1:
+                    frame3 = frame[240:600,140:500]
+                    frame = cv2.resize(frame3,(model_h, model_w))
+                # show zoomed image to assist focussing
                 if zoom == 1:
                     frame2 = picam2.capture_array('main')
                     img = cv2.cvtColor(frame2,cv2.COLOR_RGB2BGR)
@@ -551,10 +590,9 @@ if __name__ == "__main__":
                 else:
                     # Run inference on the preprocessed frame
                     results = hailo.run(frame)
-                
+               
                 # Extract detections from the inference results
                 detections = extract_detections(results, video_w, video_h, class_names, args.score_thresh)
-                
                 # detection
                 for d in range(0,len(objects)):
                     if len(detections) != 0 or record == 1:
@@ -574,9 +612,6 @@ if __name__ == "__main__":
                             text(5,13,1,6,"________")
                             text(5,13,2,6,"________")
                             text(5,13,0,5,"Recording")
-                            # sound buzzer
-                            if use_buzz == 2:
-                                buzzer.value = 0.01
                             if log == 1:
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -587,7 +622,11 @@ if __name__ == "__main__":
                                 sta = time.monotonic()
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
-                                circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
+                                if version == 2:
+                                    encoder.output.fileoutput = "/run/shm/" + str(timestamp) + '.h264'
+                                    encoder.output.start()
+                                else:
+                                    circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
                                 encoding = True
                                 print("New  Detection",timestamp + " " + objects[d])
                                 rec_led.on()
@@ -613,17 +652,21 @@ if __name__ == "__main__":
                                 time.sleep(0.5)
                                 if use_buzz == 1:
                                     buzzer.value = 0
-            
+                
+                # show recording time                   
                 if encoding:
                     td = timedelta(seconds=int(time.monotonic()-sta))
                     text(5,13,2,5,str(td))
-
+                    
                 # stop recording, if time out or low RAM
                 if encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit):
                     now = datetime.datetime.now()
                     timestamp2 = now.strftime("%y%m%d_%H%M%S")
                     print("Stopped Record", timestamp2)
-                    circular.close_output()
+                    if version == 2:
+                        encoder.output.stop()
+                    else:
+                        circular.close_output()
                     encoding = False
                     startmp4 = time.monotonic()
                     rec_led.off()
@@ -635,20 +678,30 @@ if __name__ == "__main__":
                     if use_buzz == 1:
                         text(5,13,2,4,"ON")
                     else:
-                        text(5,13,2,4,"OFF") 
-                
+                        text(5,13,2,4,"OFF")
+                        
                 # stop zoom timer
                 if time.monotonic() - zmtimer > zmtime and zoom == 1:
                     zoom = 0
                     pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                     show_last()
-					    
-                # move mp4s
+
+                # make mp4s
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
                     startmp4 = time.monotonic()
-                    # move Video RAM mp4s to SD card
+                    # convert h264 to mp4
+                    if version == 2:
+                        h264s = glob.glob('/run/shm/2*.h264')
+                        h264s.sort(reverse = False)
+                        for x in range(0,len(h264s)):
+                            print(h264s[x][:-5] + '.mp4')
+                            cmd = 'ffmpeg -framerate ' + str(mp4_fps) + ' -i ' + h264s[x] + " -c copy " + h264s[x][:-5] + '.mp4'
+                            os.system(cmd)
+                            os.remove(h264s[x])
+                            print("Saved",h264s[x][:-5] + '.mp4')
                     Videos = glob.glob('/run/shm/*.mp4')
                     Videos.sort()
+                    # move Video RAM mp4s to SD card
                     for xx in range(0,len(Videos)):
                         if not os.path.exists(h_user + "/" + '/Videos/' + Videos[xx]):
                             shutil.move(Videos[xx], h_user + '/Videos/')
@@ -657,21 +710,9 @@ if __name__ == "__main__":
                     if len(Pics) > 0:
                         pic = Pics[p].split("/")
                         pipc = h_user + '/Videos/' + pic[4][:-3] + "mp4"
-                        text(0,13,1,4,str(p+1) + "/" + str(len(Pics)))
-                        pic = Pics[p].split("/")
-                        mp4 = pic[0] + "/" + pic[1] + "/" + pic[2] + "/Videos/" + pic[4][:-4] + ".mp4"
-                        cap = cv2.VideoCapture(mp4)
-                        if not cap.isOpened():
-                            text(0,12,1,4,str(pic[4]))
-                        else:
-                            fpsv = cap.get(cv2.CAP_PROP_FPS)
-                            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                            duration = frame_count / fpsv if fpsv else 0
-                            cap.release()
-                            text(0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
-                        text(5,0,1,3,"DEL ALL")
                         if os.path.exists(pipc):
                             text(2,0,1,3,"DELETE")
+                            text(5,0,1,3,"DEL ALL")
                             if len(Pics) > 0:
                                 text(4,0,0,5,"Show")
                                 text(4,0,2,5,"Video")
@@ -681,6 +722,7 @@ if __name__ == "__main__":
                                 text(3,0,1,4,"  to USB")
                         else:
                             text(2,0,1,3,"    ")
+                            text(5,0,1,3,"    ")
                             text(3,0,1,4,"    ")
                             text(4,0,0,5,"    ")
                             text(4,0,2,5,"     ")
@@ -709,7 +751,7 @@ if __name__ == "__main__":
                         # check current hour and shutdown
                         now = datetime.datetime.now()
                         sd_time = now.replace(hour=sd_hour, minute=sd_mins, second=0, microsecond=0)
-                        if now >= sd_time and time.monotonic() - start_up > 300: # and synced == 1:
+                        if now >= sd_time and time.monotonic() - start_up > 300 and synced == 1:
                             # move jpgs and mp4s to USB if present
                             time.sleep(2 * mp4_timer)
                             USB_Files  = []
@@ -732,7 +774,6 @@ if __name__ == "__main__":
                                         shutil.move(Pics[xx],m_user + "/" + USB_Files[0] + "/Pictures/")
                             time.sleep(5)
                             # shutdown
-                            print("SHUTDOWN")
                             os.system("sudo shutdown -h now")
 
                 #check for any mouse button presses
@@ -766,7 +807,7 @@ if __name__ == "__main__":
                                 if zoom > 1:
                                     zoom = 0
                                     show_last()
-                                
+                                    
                         elif bcol == 2 and brow == 13:
                             # SHUTDOWN TIME
                             if (h == 0 and event.button == 3) or (h == 0 and event.button == 4):
@@ -809,11 +850,17 @@ if __name__ == "__main__":
                                 pre_frames -=1
                                 pre_frames = max(pre_frames,1)
                             text(3,13,2,1,str(pre_frames))
-                            picam2.stop_recording()
-							pref = pre_frames * 1000
-                            circular = CircularOutput2(buffer_duration_ms=pref)
-                            picam2.start_recording(encoder, circular)
-                            #time.sleep(pre_frames)
+                            if version == 2:
+                                picam2.stop_recording()
+                                picam2.stop_encoder()
+                                encoder.output = CircularOutput(buffersize = pre_frames * fps)
+                                picam2.start()
+                                picam2.start_encoder(encoder)
+                            else:
+                                picam2.stop_recording()
+                                pref = pre_frames * 1000
+                                circular = CircularOutput2(buffer_duration_ms=pref)
+                                picam2.start_recording(encoder, circular)
                             text(3,13,2,4,str(pre_frames))
                             
                         # Video length
@@ -836,10 +883,10 @@ if __name__ == "__main__":
                             else:
                                 use_buzz = 0
                                 text(5,13,2,4,"OFF")
-                                                    
+                                                   
                         # camera control
                         # EV
-                        elif bcol == 0 and brow == 14:
+                        if bcol == 0 and brow == 14:
                             if event.button == 3 or event.button == 4:
                                 ev +=1
                                 ev = min(ev,20)
@@ -877,7 +924,7 @@ if __name__ == "__main__":
                                 text(2,14,2,4," ")
                                 
                         # METER MODE
-                        elif bcol == 0 and brow == 15 and cam1 != "ov9281":
+                        elif bcol == 0 and brow == 15:
                             if event.button == 3 or event.button == 4:
                                 meter += 1
                                 if meter > 2:
@@ -942,7 +989,7 @@ if __name__ == "__main__":
                             text(5,14,2,4,str(contrast))
                             
                         # SHARPNESS    
-                        elif bcol == 1 and brow == 15 and cam1 != "ov9281":
+                        elif bcol == 1 and brow == 15:
                             if event.button == 3 or event.button == 4:
                                 sharpness +=1
                                 sharpness = min(sharpness,16)
@@ -953,7 +1000,7 @@ if __name__ == "__main__":
                             text(1,15,2,4,str(sharpness))
                         
                         # SATURATION
-                        elif bcol == 2 and brow == 15 and cam1 != "ov9281":
+                        elif bcol == 2 and brow == 15:
                             if event.button == 3 or event.button == 4:
                                 saturation +=1
                                 saturation = min(saturation,32)
@@ -964,7 +1011,7 @@ if __name__ == "__main__":
                             text(2,15,2,4,str(saturation))
                         
                         # AWB setting    
-                        elif bcol == 3 and brow == 15 and cam1 != "ov9281":
+                        elif bcol == 3 and brow == 15:
                             if event.button == 3 or event.button == 4:
                                 awb +=1
                                 awb = min(awb,len(awbs)-1)
@@ -1035,6 +1082,9 @@ if __name__ == "__main__":
                                 image = pygame.image.load(Pics[p])
                                 image = pygame.transform.scale(image,(rw,rh))
                                 windowSurfaceObj.blit(image,(0,bh))
+                                text(0,13,1,4,str(p+1) + "/" + str(p+1))
+                                pic = Pics[p].split("/")
+                                text(0,12,1,4,str(pic[4]))
                                 pygame.display.update()
                                 
                         # show next
@@ -1048,6 +1098,9 @@ if __name__ == "__main__":
                                 image = pygame.image.load(Pics[p])
                                 image = pygame.transform.scale(image,(rw,rh))
                                 windowSurfaceObj.blit(image,(0,bh))
+                                text(0,13,1,4,str(p+1) + "/" + str(p+1))
+                                pic = Pics[p].split("/")
+                                text(0,12,1,4,str(pic[4]))
                                 pygame.display.update()
                                 
                         # delete picture and video
