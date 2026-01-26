@@ -1,4 +1,4 @@
-7# Pi_Hailo_Wildlife_3
+# Pi_Hailo_Wildlife_3
 
 Pi5 + Hailo HAT (8L or 10H) + PI Camera to capture Wildlife videos in MP4 directly.
 
