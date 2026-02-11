@@ -69,4 +69,4 @@ When running you will see 2 windows, a live window and a capture review and cont
 
 right clicking on the 6/13 button (in the image above) will zoom in to help with focussing the camera.
 
-To mask an area of detection right click on the review window.
+To mask an area of detection right click on the review window. The masking is based on a 16 x 16 grid.
