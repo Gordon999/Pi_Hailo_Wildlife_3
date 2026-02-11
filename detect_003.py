@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.58
+# v0.60
 
 import argparse
 import cv2
@@ -44,7 +44,7 @@ import numpy as np
 version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
 
 # detection objects
-objects = ["cat","bear","dog"]
+objects = ["cat","bear","dog","person"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -71,7 +71,7 @@ mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 bitrate      = 10    # video bitrate in MB
 zmtime       = 30    # zoom timeout
-crop         = 1     # set to 1 to crop detection area
+gridmask     = 32    # resolution of masking grid, only choose 16 or 32.
 
 # default camera settings, note these will be overwritten if changed whilst running
 mode         = 1     # camera mode, 0-3 = manual,normal,short,long
@@ -274,24 +274,26 @@ def text(col,row,line,bColor,msg):
     pygame.display.update()
 
 # initialise
-Users  = []
+Users    = []
 Users.append(os.getlogin())
-user   = Users[0]
-h_user = "/home/" + os.getlogin( )
-m_user = "/media/" + os.getlogin( )
+user     = Users[0]
+h_user   = "/home/" + os.getlogin( )
+m_user   = "/media/" + os.getlogin( )
 start_up = time.monotonic()
 startmp4 = time.monotonic()
 pftimer  = time.monotonic()
 zmtimer  = time.monotonic()
 rec_led  = LED(led)
 rec_led.off()
-p = 0
-Pics = glob.glob(h_user + '/Pictures/*.jpg')
+p        = 0
+Pics     = glob.glob(h_user + '/Pictures/*.jpg')
 Pics.sort()
-record = 0
-sd_tim = (sd_hour * 60) + sd_mins
-zoom = 0
-bitrate = bitrate * 1000000
+record   = 0
+sd_tim   = (sd_hour * 60) + sd_mins
+zoom     = 0
+bitrate  = bitrate * 1000000
+xo       = 0
+yo       = 0
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -385,7 +387,7 @@ else:
     text(5,13,2,4,"OFF")
     
 # wait for things to settle...
-time.sleep(10)
+#time.sleep(10)
 
 def show_last():
   # show last captured image, if present  
@@ -608,7 +610,7 @@ if __name__ == "__main__":
                     img = cv2.cvtColor(frame2,cv2.COLOR_RGB2BGR)
                     image = pygame.surfarray.make_surface(img)
                     cropped = pygame.Surface((rw, rh))
-                    cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)), int((v_height/2)-(rh/2)), rw, rh))
+                    cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)) - xo, int((v_height/2)-(rh/2)) - yo, rw, rh))
                     image = pygame.transform.rotate(cropped,int(90))
                     image = pygame.transform.flip(image,0,1)
                     windowSurfaceObj.blit(image,(0,bh))
@@ -815,12 +817,17 @@ if __name__ == "__main__":
                             h = 1
                         if screen == 2 and brow > 11:
                             brow +=1
-   
+                            
+                        # move zoom window
+                        if zoom == 1 and mousey > bh and mousey < bh + rh:
+                            yo += int((mousex - int(rw/2))/10)
+                            xo += int((mousey - int(rh/2))/10)
+                        
                         # set mask (right click on review window)
-                        if mousey > bh and mousey < bh + rh and event.button == 3 and zoom == 0:
+                        elif mousey > bh and mousey < bh + rh and event.button == 3 and zoom == 0:
                             mx = mousex
                             my = mousey - bh
-                            mz = int(rw/16)
+                            mz = int(rw/gridmask)
                             mxc = ((int(mx/mz)) * mz)
                             myc = ((int(my/mz)) * mz)
                             # generate mask square
