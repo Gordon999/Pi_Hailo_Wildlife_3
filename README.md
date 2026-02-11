@@ -68,3 +68,5 @@ python3 detect_003.py
 When running you will see 2 windows, a live window and a capture review and control window.
 
 right clicking on the 6/13 button (in the image above) will zoom in to help with focussing the camera.
+
+To mask an area of detection right click on the review window.
