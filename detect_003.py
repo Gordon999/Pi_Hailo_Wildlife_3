@@ -10,7 +10,7 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software. 
+copies or substantial portions of the Software.
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.57
+# v0.58
 
 import argparse
 import cv2
@@ -38,12 +38,13 @@ from gpiozero import LED
 from gpiozero import PWMOutputDevice
 import pygame, sys
 from pygame.locals import *
+import numpy as np
 
 # choose detect version
 version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
 
 # detection objects
-objects = ["cat","bear","dog","person"]
+objects = ["cat","bear","dog"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -133,6 +134,28 @@ if version == 2:
 	from picamera2.outputs import CircularOutput
 else:
     from picamera2.outputs import CircularOutput2, PyavOutput
+
+# generate a mask window
+def gen_mask():
+    global rw,rh,mask
+    pygame.init()
+    bredColor =   pygame.Color(1,1,1)
+    mwidth  = rw
+    mheight = rh
+    windowSurfaceObj = pygame.display.set_mode((mwidth, mheight), pygame.NOFRAME, 24)
+    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,mwidth,mheight))
+    pygame.display.update()
+    pygame.image.save(windowSurfaceObj,'CMask.bmp')
+    pygame.display.quit()
+   
+if not os.path.exists('CMask.bmp'):
+	gen_mask()
+else:
+    mask = cv2.imread('CMask.bmp')
+    w,h,d = mask.shape
+    if w != rw:
+        gen_mask()
+		
 
 # set review window position
 x = cw + ds + dg
@@ -292,6 +315,8 @@ def Camera_Version():
             line = file.readline()
     cam1 = camstxt[2][4:10]
 Camera_Version()
+
+mask = cv2.imread('CMask.bmp')
 
 # Draw Screen
 for y in range(0,6):
@@ -564,17 +589,19 @@ if __name__ == "__main__":
             elif meter == 2:
                 picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
             sta = time.monotonic()
+            
             # Process each low resolution camera frame.
             while True:
                 # get free ram space
                 st = os.statvfs("/run/shm/")
                 freeram = (st.f_bavail * st.f_frsize)/1100000
                 
-                # capture frame
+                # capture frame and add mask
                 frame = picam2.capture_array('lores')
-                if crop == 1:
-                    frame3 = frame[240:600,140:500]
-                    frame = cv2.resize(frame3,(model_h, model_w))
+                fmask = cv2.resize(mask,(model_h, model_w))
+                fmask = np.rot90(fmask)
+                fmask = np.flipud(fmask)
+                frame3 = frame * fmask
                 # show zoomed image to assist focussing
                 if zoom == 1:
                     frame2 = picam2.capture_array('main')
@@ -588,8 +615,8 @@ if __name__ == "__main__":
                     text(0,13,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
-                    # Run inference on the preprocessed frame
-                    results = hailo.run(frame)
+                    # Run inference on the preprocessed and masked frame
+                    results = hailo.run(frame3)
                
                 # Extract detections from the inference results
                 detections = extract_detections(results, video_w, video_h, class_names, args.score_thresh)
@@ -788,18 +815,55 @@ if __name__ == "__main__":
                             h = 1
                         if screen == 2 and brow > 11:
                             brow +=1
+   
+                        # set mask (right click on review window)
+                        if mousey > bh and mousey < bh + rh and event.button == 3 and zoom == 0:
+                            mx = mousex
+                            my = mousey - bh
+                            mz = int(rw/16)
+                            mxc = ((int(mx/mz)) * mz)
+                            myc = ((int(my/mz)) * mz)
+                            # generate mask square
+                            if mask[mx][my][0] == 0:
+                                for aa in range(0,mz):
+                                    for bb in range(0,mz):
+                                        mask[mxc + bb][myc + aa][0] = 1
+                                        mask[mxc + bb][myc + aa][1] = 1
+                                        mask[mxc + bb][myc + aa][2] = 1
+                            else:
+                                for aa in range(0,mz):
+                                    for bb in range(0,mz):
+                                        mask[mxc + bb][myc + aa][0] = 0
+                                        mask[mxc + bb][myc + aa][1] = 0
+                                        mask[mxc + bb][myc + aa][2] = 0
+                            fmask = cv2.resize(mask,(model_h, model_w))
+                            image = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
+                            image = np.rot90(image)
+                            image = np.flipud(image)
+                            image = image * fmask
+                            image = pygame.surfarray.make_surface(image)
+                            image = pygame.transform.scale(image,(rw,rh))
+                            windowSurfaceObj.blit(image,(0,bh))
+                            # save mask
+                            nmask = pygame.surfarray.make_surface(mask)
+                            nmask = pygame.transform.scale(nmask,(rw,rh))
+                            nmask = pygame.transform.rotate(nmask, 270)
+                            nmask = pygame.transform.flip(nmask, True, False)
+                            pygame.image.save(nmask,'CMask.bmp')
+
                             
-                        # SHOW ZOOM
-                        if bcol == 0 and brow == 13:
+                        # SHOW ZOOM (click on capture count button)
+                        elif bcol == 0 and brow == 13:
                             zoom +=1
                             if zoom == 1:
                                 zmtimer  = time.monotonic()
                             if zoom > 1:
                                 zoom = 0
+                                pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                                 show_last()
                                 
-                        # RECORD VIDEO    
-                        if bcol == 1 and brow == 13:
+                        # RECORD VIDEO (right click)  
+                        elif bcol == 1 and brow == 13:
                             if event.button == 3:
                                 record = 1
                             else:
@@ -886,7 +950,7 @@ if __name__ == "__main__":
                                                    
                         # camera control
                         # EV
-                        if bcol == 0 and brow == 14:
+                        elif bcol == 0 and brow == 14:
                             if event.button == 3 or event.button == 4:
                                 ev +=1
                                 ev = min(ev,20)
@@ -1248,7 +1312,7 @@ if __name__ == "__main__":
                             pygame.display.update()
 
                         # MAKE FULL MP4
-                        elif bcol == 0 and brow == 1 and event.button == 3:
+                        elif bcol == 10 and brow == 0 and event.button == 3:
                           if os.path.exists('mylist.txt'):
                               os.remove('mylist.txt')
                           Videos = glob.glob(h_user + '/Videos/******_******.mp4')
@@ -1359,7 +1423,7 @@ if __name__ == "__main__":
                             text(2,0,1,0,"    ")
                             text(5,0,1,0,"    ")
                             text(3,0,1,0,"    ")
-                            pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
+                            #pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
 
                         if len(Pics) > 0 :
                             pic = Pics[p].split("/")
