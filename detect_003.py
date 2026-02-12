@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.60
+# v0.61
 
 import argparse
 import cv2
@@ -52,7 +52,7 @@ sd_mins      = 0
 
 # buzzer
 e_buzz       = 12    # gpio ouput for buzzer
-use_buzz     = 1     # sound buzzer on capture, 1 on starting video, 2 on detection
+use_buzz     = 1     # sound buzzer on capture, 0 off, 1 on starting video, 2 on detection
 
 # set variables
 screen       = 1     # 1 = 1280 x 720, 2 = 800 x 480
@@ -98,7 +98,7 @@ scale        = 1
 thickness    = 2
 
 # ram limit
-ram_limit    = 150 # stops recording if ram below this
+ram_limit    = 150   # MB, stops recording if ram below this
 
 # buzzer
 e_buzz       = 12    # gpio ouput for buzzer
@@ -252,17 +252,19 @@ def text(col,row,line,bColor,msg):
     Color = colors[bColor]
     bx = col * bw
     by = (row * bh) + (line * int(ft/2))
+    if line == 2:
+        by += 3
     if row != 2:
         if msg ==   "Recording":
-            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+2,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,ft))
         elif msg == "________":
-            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+2,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,ft))
         elif (row == 12 and col == 0) or (row == 12 and col == 5) or row == 1:
-            pygame.draw.rect(windowSurfaceObj,(10,0,0),Rect(bx+2,by+2,bw - 3,ft))
+            pygame.draw.rect(windowSurfaceObj,(10,0,0),Rect(bx+2,by+1,bw - 3,ft))
         else:
-            pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(bx+2,by+2,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(bx+2,by+1,bw - 4,ft))
     if (screen == 1 and col == 0 and row == 12) or (screen == 2 and col == 0 and row == 11):
-        pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(bx+2,by+2,bw + 152,ft))
+        pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(bx+2,by+1,bw + 152,ft))
     if os.path.exists ('/usr/share/fonts/truetype/freefont/FreeSerif.ttf'):
         fontObj = pygame.font.Font('/usr/share/fonts/truetype/freefont/FreeSerif.ttf',ft)
     else:
@@ -294,6 +296,7 @@ zoom     = 0
 bitrate  = bitrate * 1000000
 xo       = 0
 yo       = 0
+smask    = 0
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -708,12 +711,6 @@ if __name__ == "__main__":
                         text(5,13,2,4,"ON")
                     else:
                         text(5,13,2,4,"OFF")
-                        
-                # stop zoom timer
-                if time.monotonic() - zmtimer > zmtime and zoom == 1:
-                    zoom = 0
-                    pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
-                    show_last()
 
                 # make mp4s
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
@@ -820,29 +817,21 @@ if __name__ == "__main__":
                             
                         # move zoom window
                         if zoom == 1 and mousey > bh and mousey < bh + rh:
-                            yo += int((mousex - int(rw/2))/10)
-                            xo += int((mousey - int(rh/2))/10)
-                        
-                        # set mask (right click on review window)
-                        elif mousey > bh and mousey < bh + rh and event.button == 3 and zoom == 0:
-                            mx = mousex
-                            my = mousey - bh
-                            mz = int(rw/gridmask)
-                            mxc = ((int(mx/mz)) * mz)
-                            myc = ((int(my/mz)) * mz)
-                            # generate mask square
-                            if mask[mx][my][0] == 0:
-                                for aa in range(0,mz):
-                                    for bb in range(0,mz):
-                                        mask[mxc + bb][myc + aa][0] = 1
-                                        mask[mxc + bb][myc + aa][1] = 1
-                                        mask[mxc + bb][myc + aa][2] = 1
-                            else:
-                                for aa in range(0,mz):
-                                    for bb in range(0,mz):
-                                        mask[mxc + bb][myc + aa][0] = 0
-                                        mask[mxc + bb][myc + aa][1] = 0
-                                        mask[mxc + bb][myc + aa][2] = 0
+                            yo -= int((mousex - int(rw/2))/4)
+                            xo -= int(((mousey-bh) - int(rh/2))/4)
+                            
+                        # clear or set full mask (right or middle click on review window)
+                        elif mousey > bh and mousey < bh + rh and (event.button == 3 or event.button == 2) and zoom == 0:
+                            if smask == 1:
+                                if event.button == 3:
+                                    w = 1
+                                else:
+                                    w = 0
+                                for aa in range(0,rw - 1):
+                                    for bb in range(0,rh - 1):
+                                        mask[bb][aa][0] = w
+                                        mask[bb][aa][1] = w
+                                        mask[bb][aa][2] = w
                             fmask = cv2.resize(mask,(model_h, model_w))
                             image = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
                             image = np.rot90(image)
@@ -857,10 +846,49 @@ if __name__ == "__main__":
                             nmask = pygame.transform.rotate(nmask, 270)
                             nmask = pygame.transform.flip(nmask, True, False)
                             pygame.image.save(nmask,'CMask.bmp')
+                            smask = 1
+                        
+                        # set mask (left click on review window)
+                        elif mousey > bh and mousey < bh + rh and event.button == 1 and zoom == 0:
+                            if smask == 1:
+                                mx = mousex
+                                my = mousey - bh
+                                mz = int(rw/gridmask)
+                                mxc = ((int(mx/mz)) * mz)
+                                myc = ((int(my/mz)) * mz)
+                                # generate mask square
+                                if mask[mx][my][0] == 0:
+                                    for aa in range(0,mz):
+                                        for bb in range(0,mz):
+                                            mask[mxc + bb][myc + aa][0] = 1
+                                            mask[mxc + bb][myc + aa][1] = 1
+                                            mask[mxc + bb][myc + aa][2] = 1
+                                else:
+                                    for aa in range(0,mz):
+                                        for bb in range(0,mz):
+                                            mask[mxc + bb][myc + aa][0] = 0
+                                            mask[mxc + bb][myc + aa][1] = 0
+                                            mask[mxc + bb][myc + aa][2] = 0
+                            fmask = cv2.resize(mask,(model_h, model_w))
+                            image = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
+                            image = np.rot90(image)
+                            image = np.flipud(image)
+                            image = image * fmask
+                            image = pygame.surfarray.make_surface(image)
+                            image = pygame.transform.scale(image,(rw,rh))
+                            windowSurfaceObj.blit(image,(0,bh))
+                            # save mask
+                            nmask = pygame.surfarray.make_surface(mask)
+                            nmask = pygame.transform.scale(nmask,(rw,rh))
+                            nmask = pygame.transform.rotate(nmask, 270)
+                            nmask = pygame.transform.flip(nmask, True, False)
+                            pygame.image.save(nmask,'CMask.bmp')
+                            smask = 1
 
                             
                         # SHOW ZOOM (click on capture count button)
                         elif bcol == 0 and brow == 13:
+                            smask = 0
                             zoom +=1
                             if zoom == 1:
                                 zmtimer  = time.monotonic()
@@ -871,6 +899,7 @@ if __name__ == "__main__":
                                 
                         # RECORD VIDEO (right click)  
                         elif bcol == 1 and brow == 13:
+                            smask = 0
                             if event.button == 3:
                                 record = 1
                             else:
@@ -1144,6 +1173,7 @@ if __name__ == "__main__":
                             
                         # show previous
                         elif bcol == 0 and brow == 0:
+                            smask = 0
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
                             p -= 1
@@ -1160,6 +1190,7 @@ if __name__ == "__main__":
                                 
                         # show next
                         elif bcol == 1 and brow == 0:
+                            smask = 0
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
                             p += 1
@@ -1176,6 +1207,7 @@ if __name__ == "__main__":
                                 
                         # delete picture and video
                         elif bcol == 2 and brow == 0 and event.button == 3:
+                            smask = 0
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
@@ -1203,6 +1235,7 @@ if __name__ == "__main__":
                             
                         # delete ALL Pictures and Videos
                         elif bcol == 5 and brow == 0 and event.button == 3:
+                            smask = 0
                             Videos = glob.glob(h_user + '/Videos/*.mp4')
                             Videos.sort()
                             for w in range(0,len(Videos)):
@@ -1221,6 +1254,7 @@ if __name__ == "__main__":
                             
                         # move picture and video to USB
                         elif bcol == 3 and brow == 0 and event.button != 3:
+                            smask = 0
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,40,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
@@ -1269,6 +1303,7 @@ if __name__ == "__main__":
                             
                         # move ALL pictures and videos to USB
                         elif bcol == 3 and brow == 0 and event.button == 3:
+                            smask = 0
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
                             Videos = glob.glob(h_user + '/Videos/*.mp4')
@@ -1403,6 +1438,7 @@ if __name__ == "__main__":
                         
                         # Show Video
                         elif bcol == 4 and brow == 0 and event.button != 3 and len(Pics) > 0:
+                            smask = 0
                             Videos = glob.glob(h_user + '/Videos/******_******.mp4')
                             Videos.sort()
                             pic = Pics[p].split("/")
@@ -1438,15 +1474,15 @@ if __name__ == "__main__":
                             pic = Pics[p].split("/")
                             mp4 = pic[0] + "/" + pic[1] + "/" + pic[2] + "/Videos/" + pic[4][:-4] + ".mp4"
                             cap = cv2.VideoCapture(mp4)
-                            if not cap.isOpened():
+                            if not cap.isOpened() and smask == 0:
                                 text(0,12,1,4,str(pic[4]))
-                            else:
+                            elif smask == 0:
                                 fpsv = cap.get(cv2.CAP_PROP_FPS)
                                 frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
                                 duration = frame_count / fpsv if fpsv else 0
                                 cap.release()
                                 text(0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
-                        else:
+                        elif smask == 0:
                             text(0,13,1,4,"0")
                         pygame.display.update()
                         
