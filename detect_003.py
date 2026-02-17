@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.61
+# v0.64
 
 import argparse
 import cv2
@@ -137,25 +137,16 @@ else:
 
 # generate a mask window
 def gen_mask():
-    global rw,rh,mask
     pygame.init()
-    bredColor =   pygame.Color(1,1,1)
-    mwidth  = rw
-    mheight = rh
-    windowSurfaceObj = pygame.display.set_mode((mwidth, mheight), pygame.NOFRAME, 24)
-    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,mwidth,mheight))
+    bredColor = pygame.Color(1,1,1)
+    windowSurfaceObj = pygame.display.set_mode((640,640), pygame.NOFRAME, 24)
+    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,640,640))
     pygame.display.update()
-    pygame.image.save(windowSurfaceObj,'CMask.bmp')
+    pygame.image.save(windowSurfaceObj,'Mask.bmp')
     pygame.display.quit()
    
-if not os.path.exists('CMask.bmp'):
+if not os.path.exists('Mask.bmp'):
 	gen_mask()
-else:
-    mask = cv2.imread('CMask.bmp')
-    w,h,d = mask.shape
-    if w != rw:
-        gen_mask()
-		
 
 # set review window position
 x = cw + ds + dg
@@ -297,6 +288,7 @@ bitrate  = bitrate * 1000000
 xo       = 0
 yo       = 0
 smask    = 0
+start    = 1
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -320,8 +312,6 @@ def Camera_Version():
             line = file.readline()
     cam1 = camstxt[2][4:10]
 Camera_Version()
-
-mask = cv2.imread('CMask.bmp')
 
 # Draw Screen
 for y in range(0,6):
@@ -520,7 +510,10 @@ if __name__ == "__main__":
     with Hailo(args.model) as hailo:
         model_h, model_w, _ = hailo.get_input_shape()
         video_w, video_h    = v_width,v_height
-
+        mask = cv2.imread('Mask.bmp')
+        maskoff = np.all(mask)
+        fmask = np.rot90(mask)
+        fmask = np.flipud(fmask)
         # Load class names from the labels file
         with open(args.labels, 'r', encoding="utf-8") as f:
             class_names = f.read().splitlines()
@@ -532,6 +525,7 @@ if __name__ == "__main__":
         with Picamera2() as picam2:
             main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
             lores = {'size': (model_w, model_h), 'format': 'RGB888'}
+            #fmask = mask
             if cam1 == "imx708":
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
             else:
@@ -601,12 +595,8 @@ if __name__ == "__main__":
                 st = os.statvfs("/run/shm/")
                 freeram = (st.f_bavail * st.f_frsize)/1100000
                 
-                # capture frame and add mask
+                # capture frame
                 frame = picam2.capture_array('lores')
-                fmask = cv2.resize(mask,(model_h, model_w))
-                fmask = np.rot90(fmask)
-                fmask = np.flipud(fmask)
-                frame3 = frame * fmask
                 # show zoomed image to assist focussing
                 if zoom == 1:
                     frame2 = picam2.capture_array('main')
@@ -620,8 +610,17 @@ if __name__ == "__main__":
                     text(0,13,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
-                    # Run inference on the preprocessed and masked frame
-                    results = hailo.run(frame3)
+                    if maskoff == False:
+						# add mask
+                        frame3 = frame * fmask
+                        # Run inference on the masked frame
+                        results = hailo.run(frame3)
+                        if start == 1:
+                            cv2.imwrite('frame3.bmp',frame3)
+                            start = 0
+                    else:
+						# Run inference on the frame
+                        results = hailo.run(frame)
                
                 # Extract detections from the inference results
                 detections = extract_detections(results, video_w, video_h, class_names, args.score_thresh)
@@ -804,7 +803,7 @@ if __name__ == "__main__":
 
                 #check for any mouse button presses
                 for event in pygame.event.get():
-                    if (event.type == MOUSEBUTTONUP):
+                    if (event.type == MOUSEBUTTONDOWN):
                         mousex, mousey = event.pos
                         brow = int(mousey/bh)
                         hcol = mousex/bw
@@ -827,33 +826,45 @@ if __name__ == "__main__":
                                     w = 1
                                 else:
                                     w = 0
-                                for aa in range(0,rw - 1):
-                                    for bb in range(0,rh - 1):
+                                for aa in range(0,model_w - 1):
+                                    for bb in range(0,model_h - 1):
                                         mask[bb][aa][0] = w
                                         mask[bb][aa][1] = w
                                         mask[bb][aa][2] = w
-                            fmask = cv2.resize(mask,(model_h, model_w))
+                                if w == 0:
+                                    mx = int(mousex * (model_w/rw))
+                                    my = int((mousey - bh) * (model_h/rh))
+                                    mz = int(model_w/gridmask)
+                                    mxc = ((int(mx/mz)) * mz)
+                                    myc = ((int(my/mz)) * mz)
+                                    for aa in range(0,mz):
+                                        for bb in range(0,mz):
+                                            mask[mxc + bb][myc + aa][0] = 1
+                                            mask[mxc + bb][myc + aa][1] = 1
+                                            mask[mxc + bb][myc + aa][2] = 1
+                            # show image
                             image = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
                             image = np.rot90(image)
                             image = np.flipud(image)
-                            image = image * fmask
+                            image = image * mask
                             image = pygame.surfarray.make_surface(image)
                             image = pygame.transform.scale(image,(rw,rh))
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = pygame.surfarray.make_surface(mask)
-                            nmask = pygame.transform.scale(nmask,(rw,rh))
                             nmask = pygame.transform.rotate(nmask, 270)
                             nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'CMask.bmp')
+                            pygame.image.save(nmask,'Mask.bmp')
                             smask = 1
+                            start = 1
+                            maskoff = np.all(mask)
                         
                         # set mask (left click on review window)
                         elif mousey > bh and mousey < bh + rh and event.button == 1 and zoom == 0:
                             if smask == 1:
-                                mx = mousex
-                                my = mousey - bh
-                                mz = int(rw/gridmask)
+                                mz = int(model_w/gridmask)
+                                mx = int(mousex * (model_w/rw))
+                                my = int((mousey - bh) * (model_h/rh))
                                 mxc = ((int(mx/mz)) * mz)
                                 myc = ((int(my/mz)) * mz)
                                 # generate mask square
@@ -869,22 +880,23 @@ if __name__ == "__main__":
                                             mask[mxc + bb][myc + aa][0] = 0
                                             mask[mxc + bb][myc + aa][1] = 0
                                             mask[mxc + bb][myc + aa][2] = 0
-                            fmask = cv2.resize(mask,(model_h, model_w))
                             image = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
                             image = np.rot90(image)
                             image = np.flipud(image)
-                            image = image * fmask
+                            image = image * mask
                             image = pygame.surfarray.make_surface(image)
                             image = pygame.transform.scale(image,(rw,rh))
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = pygame.surfarray.make_surface(mask)
-                            nmask = pygame.transform.scale(nmask,(rw,rh))
-                            nmask = pygame.transform.rotate(nmask, 270)
+                            nmask = pygame.transform.rotate(nmask,270)
                             nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'CMask.bmp')
+                            pygame.image.save(nmask,'Mask.bmp')
                             smask = 1
-
+                            start = 1
+                            fmask = np.rot90(mask)
+                            fmask = np.flipud(fmask)
+                            maskoff = np.all(mask)
                             
                         # SHOW ZOOM (click on capture count button)
                         elif bcol == 0 and brow == 13:
@@ -1174,6 +1186,7 @@ if __name__ == "__main__":
                         # show previous
                         elif bcol == 0 and brow == 0:
                             smask = 0
+                            pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
                             p -= 1
@@ -1191,6 +1204,7 @@ if __name__ == "__main__":
                         # show next
                         elif bcol == 1 and brow == 0:
                             smask = 0
+                            pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
                             Pics.sort()
                             p += 1
