@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.65
+# v0.66
 
 import argparse
 import cv2
@@ -71,7 +71,7 @@ mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 bitrate      = 10    # video bitrate in MB
 zmtime       = 30    # zoom timeout
-gridmask     = 32    # resolution of masking grid, only choose 16 or 32.
+gridmask     = 32    # resolution of masking grid, eg 4 to 64.
 
 # default camera settings, note these will be overwritten if changed whilst running
 mode         = 1     # camera mode, 0-3 = manual,normal,short,long
@@ -145,9 +145,15 @@ def gen_mask():
     pygame.display.update()
     pygame.image.save(windowSurfaceObj,'Mask2.bmp')
     pygame.display.quit()
-   
+
+  
 if not os.path.exists('Mask2.bmp'):
 	gen_mask()
+	
+mask = cv2.imread('Mask2.bmp')
+if mask.shape[0] != gridmask:
+    gen_mask()
+    mask = cv2.imread('Mask2.bmp')
 
 # set review window position
 x = cw + ds + dg
@@ -494,7 +500,6 @@ if __name__ == "__main__":
     with Hailo(args.model) as hailo:
         model_h, model_w, _ = hailo.get_input_shape()
         video_w, video_h    = v_width,v_height
-        mask = cv2.imread('Mask2.bmp')
         mask = cv2.resize(mask, (model_h, model_w), interpolation=cv2.INTER_AREA) 
         maskoff = np.all(mask)
         fmask = np.rot90(mask)
