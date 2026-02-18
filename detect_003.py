@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.66
+# v0.67
 
 import argparse
 import cv2
@@ -500,8 +500,8 @@ if __name__ == "__main__":
     with Hailo(args.model) as hailo:
         model_h, model_w, _ = hailo.get_input_shape()
         video_w, video_h    = v_width,v_height
-        mask = cv2.resize(mask, (model_h, model_w), interpolation=cv2.INTER_AREA) 
         maskoff = np.all(mask)
+        mask = cv2.resize(mask, (model_h, model_w), interpolation=cv2.INTER_AREA) 
         fmask = np.rot90(mask)
         fmask = np.flipud(fmask)
         # Load class names from the labels file
@@ -848,6 +848,8 @@ if __name__ == "__main__":
                             pygame.image.save(nmask,'Mask2.bmp')
                             smask = 1
                             start = 1
+                            fmask = np.rot90(mask)
+                            fmask = np.flipud(fmask)
                             maskoff = np.all(mask)
                         
                         # set mask (left click on review window)
