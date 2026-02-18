@@ -19,12 +19,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.64
+# v0.65
 
 import argparse
 import cv2
 from picamera2 import MappedArray, Picamera2, Preview
-from picamera2.devices import Hailo
+from picamera2.devices import Hailo, hailo_architecture
 from picamera2.encoders import H264Encoder
 from libcamera import controls
 from libcamera import Transform
@@ -44,7 +44,7 @@ import numpy as np
 version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
 
 # detection objects
-objects = ["cat","bear","dog","person"]
+objects = ["cat","bear","dog"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -137,15 +137,16 @@ else:
 
 # generate a mask window
 def gen_mask():
+    global gridmask
     pygame.init()
     bredColor = pygame.Color(1,1,1)
-    windowSurfaceObj = pygame.display.set_mode((640,640), pygame.NOFRAME, 24)
-    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,640,640))
+    windowSurfaceObj = pygame.display.set_mode((gridmask,gridmask), pygame.NOFRAME, 24)
+    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,gridmask,gridmask))
     pygame.display.update()
-    pygame.image.save(windowSurfaceObj,'Mask.bmp')
+    pygame.image.save(windowSurfaceObj,'Mask2.bmp')
     pygame.display.quit()
    
-if not os.path.exists('Mask.bmp'):
+if not os.path.exists('Mask2.bmp'):
 	gen_mask()
 
 # set review window position
@@ -156,7 +157,7 @@ pygame.init()
 windowSurfaceObj = pygame.display.set_mode((rw,ch),1, 24)
 pygame.display.set_caption("Review Captures" )
 
-# check Det_configXX.txt exists, if not then write default values
+# check Det_ConfigX.txt exists, if not then write default values
 config_file = "Det_Config6.txt"
 if not os.path.exists(config_file):
     defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz]
@@ -189,23 +190,6 @@ sd_mins    = defaults[13]
 pre_frames = defaults[14]
 v_length   = defaults[15]
 use_buzz   = defaults[16]
-
-# detect which hailo
-if os.path.exists ("/run/shm/hailo_m.txt"): 
-    os.remove("/run/shm/hailo_m.txt")
-os.system("hailortcli fw-control identify >> /run/shm/hailo_m.txt")
-hver = ""
-with open("/run/shm/hailo_m.txt", "r") as file:
-    line = file.readline()
-    while line:
-       line = file.readline()
-       if line[0:11] == "Device Arch":
-           hver = line[26:28]
-if hver != "":
-    print("HAILO",hver)
-else:
-    print("No Hailo HAT installed ?")
-    quit()
 
 # define colors
 global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
@@ -494,12 +478,12 @@ if __name__ == "__main__":
 
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(description="Detection Example")
-    if hver == "8L":
-        parser.add_argument("-m", "--model", help="Path for the HEF model.",
-                        default="/usr/share/hailo-models/yolov8s_h8l.hef")
-    else:
+    if hailo_architecture() == 'HAILO10H':
         parser.add_argument("-m", "--model", help="Path for the HEF model.",
                         default="/usr/share/hailo-models/yolov8m_h10.hef")
+    else:
+        parser.add_argument("-m", "--model", help="Path for the HEF model.",
+                        default="/usr/share/hailo-models/yolov8s_h8l.hef")
     parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2/examples/hailo/coco.txt",
                         help="Path to a text file containing labels.")
     parser.add_argument("-s", "--score_thresh", type=float, default=0.65,
@@ -510,7 +494,8 @@ if __name__ == "__main__":
     with Hailo(args.model) as hailo:
         model_h, model_w, _ = hailo.get_input_shape()
         video_w, video_h    = v_width,v_height
-        mask = cv2.imread('Mask.bmp')
+        mask = cv2.imread('Mask2.bmp')
+        mask = cv2.resize(mask, (model_h, model_w), interpolation=cv2.INTER_AREA) 
         maskoff = np.all(mask)
         fmask = np.rot90(mask)
         fmask = np.flipud(fmask)
@@ -852,9 +837,10 @@ if __name__ == "__main__":
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = pygame.surfarray.make_surface(mask)
+                            nmask = pygame.transform.scale(nmask,(gridmask,gridmask))
                             nmask = pygame.transform.rotate(nmask, 270)
                             nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'Mask.bmp')
+                            pygame.image.save(nmask,'Mask2.bmp')
                             smask = 1
                             start = 1
                             maskoff = np.all(mask)
@@ -889,9 +875,10 @@ if __name__ == "__main__":
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = pygame.surfarray.make_surface(mask)
+                            nmask = pygame.transform.scale(nmask,(gridmask,gridmask))
                             nmask = pygame.transform.rotate(nmask,270)
                             nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'Mask.bmp')
+                            pygame.image.save(nmask,'Mask2.bmp')
                             smask = 1
                             start = 1
                             fmask = np.rot90(mask)
