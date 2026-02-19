@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.67
+# v0.68
 
 import argparse
 import cv2
@@ -74,16 +74,16 @@ zmtime       = 30    # zoom timeout
 gridmask     = 32    # resolution of masking grid, eg 4 to 64.
 
 # default camera settings, note these will be overwritten if changed whilst running
-mode         = 1     # camera mode, 0-3 = manual,normal,short,long
+mode         = 1     # camera mode, (see modes below), 1 = normal
 speed        = 1000  # manual shutter speed in mS
 gain         = 0     # set camera gain, 0 = auto
-meter        = 2     # set meter mode, 0-2 = centre,spot,matrix
+meter        = 2     # set meter mode, (see meters below), 2 = Matrix
 brightness   = 0     # set brightness
 contrast     = 8     # set contrast
 ev           = 0     # set eV
 sharpness    = 10    # set sharpness
 saturation   = 10    # set saturation
-awb          = 0     # set awb mode (see awbs below) 0 = auto
+awb          = 0     # set awb mode, (see awbs below), 0 = auto
 red          = 10    # set red, only in awb custom mode
 blue         = 10    # set blue, only in awb custom mode
 modes        = ['manual','normal','short','long']
@@ -135,24 +135,18 @@ if version == 2:
 else:
     from picamera2.outputs import CircularOutput2, PyavOutput
 
-# generate a mask window
-def gen_mask():
-    global gridmask
-    pygame.init()
-    bredColor = pygame.Color(1,1,1)
-    windowSurfaceObj = pygame.display.set_mode((gridmask,gridmask), pygame.NOFRAME, 24)
-    pygame.draw.rect(windowSurfaceObj,bredColor,Rect(0,0,gridmask,gridmask))
-    pygame.display.update()
-    pygame.image.save(windowSurfaceObj,'Mask2.bmp')
-    pygame.display.quit()
-
-  
+# generate the mask if not an existing one
 if not os.path.exists('Mask2.bmp'):
-	gen_mask()
-	
+    mask = np.ones((gridmask, gridmask, 3))
+    cv2.imwrite('Mask2.bmp',mask)
+    
+# read the mask	
 mask = cv2.imread('Mask2.bmp')
+
+# regenerate and reread the mask if gridmask has been changed
 if mask.shape[0] != gridmask:
-    gen_mask()
+    mask = np.ones((gridmask, gridmask, 3))
+    cv2.imwrite('Mask2.bmp',mask)
     mask = cv2.imread('Mask2.bmp')
 
 # set review window position
@@ -370,7 +364,7 @@ else:
     text(5,13,2,4,"OFF")
     
 # wait for things to settle...
-#time.sleep(10)
+time.sleep(5)
 
 def show_last():
   # show last captured image, if present  
@@ -459,22 +453,6 @@ def apply_timestamp(request):
           end_point = tuple(lst)
           cv2.rectangle(m.array, origin, end_point, (0,0,0), -1) 
           cv2.putText(m.array, timestamp, origin, font, scale, colour, thickness)
-
-# find camera version
-def Camera_Version():
-    global cam1
-    if os.path.exists('/run/shm/libcams.txt'):
-        os.rename('/run/shm/libcams.txt', '/run/shm/oldlibcams.txt')
-    os.system("rpicam-vid --list-cameras >> /run/shm/libcams.txt")
-    time.sleep(0.5)
-    # read libcams.txt file
-    camstxt = []
-    with open("/run/shm/libcams.txt", "r") as file:
-        line = file.readline()
-        while line:
-            camstxt.append(line.strip())
-            line = file.readline()
-    cam1 = camstxt[2][4:10]
         
 # main loop
 if __name__ == "__main__":
@@ -500,10 +478,13 @@ if __name__ == "__main__":
     with Hailo(args.model) as hailo:
         model_h, model_w, _ = hailo.get_input_shape()
         video_w, video_h    = v_width,v_height
+        # determine if a mask set
         maskoff = np.all(mask)
+        # resize mask to hailo model
         mask = cv2.resize(mask, (model_h, model_w), interpolation=cv2.INTER_AREA) 
         fmask = np.rot90(mask)
         fmask = np.flipud(fmask)
+        
         # Load class names from the labels file
         with open(args.labels, 'r', encoding="utf-8") as f:
             class_names = f.read().splitlines()
@@ -515,7 +496,6 @@ if __name__ == "__main__":
         with Picamera2() as picam2:
             main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
             lores = {'size': (model_w, model_h), 'format': 'RGB888'}
-            #fmask = mask
             if cam1 == "imx708":
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
             else:
@@ -561,7 +541,6 @@ if __name__ == "__main__":
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Custom})
                 cg = (red,blue)
                 picam2.set_controls({"AwbEnable": False,"ColourGains": cg})
-                            
             if mode == 0:
                 picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
             else:
@@ -841,11 +820,8 @@ if __name__ == "__main__":
                             image = pygame.transform.scale(image,(rw,rh))
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
-                            nmask = pygame.surfarray.make_surface(mask)
-                            nmask = pygame.transform.scale(nmask,(gridmask,gridmask))
-                            nmask = pygame.transform.rotate(nmask, 270)
-                            nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'Mask2.bmp')
+                            nmask = cv2.resize(mask,(gridmask,gridmask), interpolation = cv2.INTER_AREA)
+                            cv2.imwrite('Mask2.bmp',nmask)
                             smask = 1
                             start = 1
                             fmask = np.rot90(mask)
@@ -881,11 +857,8 @@ if __name__ == "__main__":
                             image = pygame.transform.scale(image,(rw,rh))
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
-                            nmask = pygame.surfarray.make_surface(mask)
-                            nmask = pygame.transform.scale(nmask,(gridmask,gridmask))
-                            nmask = pygame.transform.rotate(nmask,270)
-                            nmask = pygame.transform.flip(nmask, True, False)
-                            pygame.image.save(nmask,'Mask2.bmp')
+                            nmask = cv2.resize(mask,(gridmask,gridmask), interpolation = cv2.INTER_AREA)
+                            cv2.imwrite('Mask2.bmp',nmask)
                             smask = 1
                             start = 1
                             fmask = np.rot90(mask)
