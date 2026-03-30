@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.68
+# v0.77
 
 import argparse
 import cv2
@@ -40,11 +40,18 @@ import pygame, sys
 from pygame.locals import *
 import numpy as np
 
+# Your Location
+your_lat     = '51.0000000' # set your location latitude
+your_lon     = '-1.0000000' # set your location longtitude
+your_elev    = 100          # set your location height in metres
+UTC_offset   = 0            # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
+use_suntimes = 0            # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
+
 # choose detect version
 version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
 
 # detection objects
-objects = ["cat","bear","dog"]
+objects = ["cat","bear","dog","clock"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -56,20 +63,20 @@ use_buzz     = 1     # sound buzzer on capture, 0 off, 1 on starting video, 2 on
 
 # set variables
 screen       = 1     # 1 = 1280 x 720, 2 = 800 x 480
-show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 = no
+show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 = none
 log          = 0     # set to 1 to make a log of detections in detect_log.txt
 v_width      = 1088  # video width
 v_height     = 1088  # video height
+fps          = 30    # video frame rate
+bitrate      = 10    # video bitrate in MB
 v_length     = 10    # seconds, minimum video length
 pre_frames   = 5     # seconds, defines length of pre-detection buffer
-fps          = 30    # video frame rate
 h_flip       = 0     # set to 1 to flip horizontally 
 v_flip       = 0     # set to 1 to flip vertically
 mp4_fps      = 30    # mp4 frame rate
 mp4_timer    = 10    # seconds, convert h264s to mp4s after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
-bitrate      = 10    # video bitrate in MB
 zmtime       = 30    # zoom timeout
 gridmask     = 32    # resolution of masking grid, eg 4 to 64.
 
@@ -102,7 +109,7 @@ ram_limit    = 150   # MB, stops recording if ram below this
 
 # buzzer
 e_buzz       = 12    # gpio ouput for buzzer
-use_buzz     = 1     # sound buzzer on capture, 1 on starting video, 2 on detection
+use_buzz     = 1     # sound buzzer on capture, 0 is off, 1 on starting video, 2 on detection
 
 # optional buzzer
 buzzer=PWMOutputDevice(e_buzz, initial_value=0,frequency=4000)
@@ -135,18 +142,40 @@ if version == 2:
 else:
     from picamera2.outputs import CircularOutput2, PyavOutput
 
+# load a pre-defined mask if available 
+if os.path.exists('Mask1.bmp'):
+    mask = cv2.imread('Mask1.bmp')
+    # convert to 0/1
+    for aa in range(0,mask.shape[0]-1):
+        for bb in range(0,mask.shape[1]-1):
+            if mask[bb][aa][0] > 128 or mask[bb][aa][1] > 128 or mask[bb][aa][2] > 128:
+                mask[bb][aa][0] = 1
+                mask[bb][aa][1] = 1
+                mask[bb][aa][2] = 1
+            else:
+                mask[bb][aa][0] = 0
+                mask[bb][aa][1] = 0
+                mask[bb][aa][2] = 0
+    mask = np.rot90(mask)
+    mask = np.flipud(mask)
+    gridmask = mask.shape[0]
+
 # generate the mask if not an existing one
-if not os.path.exists('Mask2.bmp'):
+elif not os.path.exists('Mask2.bmp'):
     mask = np.ones((gridmask, gridmask, 3))
     cv2.imwrite('Mask2.bmp',mask)
     
-# read the mask	
-mask = cv2.imread('Mask2.bmp')
+    # read the mask	
+    mask = cv2.imread('Mask2.bmp')
 
-# regenerate and reread the mask if gridmask has been changed
-if mask.shape[0] != gridmask:
-    mask = np.ones((gridmask, gridmask, 3))
-    cv2.imwrite('Mask2.bmp',mask)
+    # regenerate and reread the mask if gridmask has been changed
+    if mask.shape[0] != gridmask:
+        mask = np.ones((gridmask, gridmask, 3))
+        cv2.imwrite('Mask2.bmp',mask)
+        mask = cv2.imread('Mask2.bmp')
+        
+else:
+	# read the mask	
     mask = cv2.imread('Mask2.bmp')
 
 # set review window position
@@ -191,6 +220,61 @@ pre_frames = defaults[14]
 v_length   = defaults[15]
 use_buzz   = defaults[16]
 
+def suntimes():
+    global sd_hour,sd_mins,sr_hour,sr_mins,UTC_offset
+    sun = ephem.Sun()
+    # sunrise
+    sunrise  = you.next_rising(sun)
+    sunriset = datetime.datetime.strptime(str(sunrise), '%Y/%m/%d %H:%M:%S')
+    sr_hour  = int(sunriset.hour)
+    sr_mins  = int(sunriset.minute)
+    # adjust SUNRISE for UTC offset
+    UTC_offset_hr = int(UTC_offset)
+    UTC_offset_mn = UTC_offset - UTC_offset_hr
+    sr_hour += int(UTC_offset_hr)
+    sr_mins += int(UTC_offset_mn * 60)
+    if sr_mins > 59:
+        sr_mins -= 60
+        sr_hour += 1
+    if sr_mins < 0:
+        sr_mins += 60
+        sr_hour -= 1
+    if sr_hour > 23:
+        sr_hour -= 24
+    if sr_hour < 0:
+        sr_hour += 24
+    # sunset
+    sunset   = you.next_setting(sun)
+    sunsett  = datetime.datetime.strptime(str(sunset), '%Y/%m/%d %H:%M:%S')
+    sd_hour  = int(sunsett.hour)
+    sd_mins  = int(sunsett.minute)
+    # adjust SUNSET for UTC offset
+    UTC_offset_hr = int(UTC_offset)
+    UTC_offset_mn = UTC_offset - UTC_offset_hr
+    sd_hour += int(UTC_offset_hr)
+    sd_mins += int(UTC_offset_mn * 60)
+    if sd_mins > 59:
+        sd_mins -= 60
+        sd_hour += 1
+    if sd_mins < 0:
+        sd_mins += 60
+        sd_hour -= 1
+    if sd_hour > 23:
+        sd_hour -= 24
+    if sd_hour < 0:
+        sd_hour += 24
+
+if use_suntimes == 1:
+    import ephem
+    impephem = 1
+    you = ephem.Observer()
+    you.lat       = your_lat 
+    you.lon       = your_lon 
+    you.elevation = your_elev
+    suntimes()
+else:
+	impephem = 0
+
 # define colors
 global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
 greyColor   = pygame.Color(130, 130, 130)
@@ -219,31 +303,31 @@ def button(col,row,bw,bh,bColor):
     pygame.display.update(bx, by, bw-1, bh)
 
 # write text on a button
-def text(col,row,line,bColor,msg):
-    global bh,bw,ft,screen
+def text(fs,col,row,line,bColor,msg):
+    global bh,bw,screen
     if screen == 2 and row > 11:
         row -= 1
     colors = [greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor]
     Color = colors[bColor]
     bx = col * bw
-    by = (row * bh) + (line * int(ft/2))
+    by = (row * bh) + (line * int(fs/2))
     if line == 2:
         by += 3
     if row != 2:
         if msg ==   "Recording":
-            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,fs))
         elif msg == "________":
-            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,0,0),Rect(bx+2,by+1,bw - 4,fs))
         elif (row == 12 and col == 0) or (row == 12 and col == 5) or row == 1:
-            pygame.draw.rect(windowSurfaceObj,(10,0,0),Rect(bx+2,by+1,bw - 3,ft))
+            pygame.draw.rect(windowSurfaceObj,(10,0,0),Rect(bx+2,by+1,bw - 3,fs))
         else:
-            pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(bx+2,by+1,bw - 4,ft))
+            pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(bx+2,by+1,bw - 4,fs))
     if (screen == 1 and col == 0 and row == 12) or (screen == 2 and col == 0 and row == 11):
-        pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(bx+2,by+1,bw + 152,ft))
+        pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(bx+2,by+1,bw + 152,fs))
     if os.path.exists ('/usr/share/fonts/truetype/freefont/FreeSerif.ttf'):
-        fontObj = pygame.font.Font('/usr/share/fonts/truetype/freefont/FreeSerif.ttf',ft)
+        fontObj = pygame.font.Font('/usr/share/fonts/truetype/freefont/FreeSerif.ttf',fs)
     else:
-        fontObj = pygame.font.Font(None,ft)
+        fontObj = pygame.font.Font(None,fs)
     msgSurfaceObj = fontObj.render(msg, False, (Color))
     msgRectobj = msgSurfaceObj.get_rect()
     msgRectobj.topleft = (bx + 5,by)
@@ -273,6 +357,7 @@ xo       = 0
 yo       = 0
 smask    = 0
 start    = 1
+w        = 0
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -306,62 +391,75 @@ if screen == 1:
     pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(0,rh + bh,rw,bh))
 for y in range(1,6):
     button(y,13,bw,bh,0)
-text(0,0,1,5,"< PREV")
-text(0,1,1,5,"Initialising  ")
-text(1,0,1,5,"NEXT >")
+text(ft,0,0,1,5,"< PREV")
+text(ft,0,1,1,5,"Initialising  ")
+text(ft,1,0,1,5,"NEXT >")
 if len(Pics) > 0:
-    text(4,0,0,5,"Show")
-    text(4,0,2,5,"Video")
-text(1,13,1,3,"RECORD")
-text(0,14,0,5,"EV")
-text(0,14,2,4,str(ev))
-text(1,14,0,5,"Mode")
-text(1,14,2,4,str(modes[mode]))
+    text(ft,4,0,0,5,"Show")
+    text(ft,4,0,2,5,"Video")
+text(ft,1,13,1,3,"RECORD")
+text(ft,0,14,0,5,"EV")
+text(ft,0,14,2,4,str(ev))
+text(ft,1,14,0,5,"Mode")
+text(ft,1,14,2,4,str(modes[mode]))
 if cam1 != "ov9281":
-    text(0,15,0,5,"Meter")
-    text(0,15,2,4,str(meters[meter]))
-    text(1,15,0,5,"Sharpness")
-    text(1,15,2,4,str(sharpness))
-    text(2,15,0,5,"Saturation")
-    text(2,15,2,4,str(saturation))
-    text(3,15,0,5,"AWB")
-    text(3,15,2,4,str(awbs[awb]))
+    text(ft,0,15,0,5,"Meter")
+    text(ft,0,15,2,4,str(meters[meter]))
+    text(ft,1,15,0,5,"Sharpness")
+    text(ft,1,15,2,4,str(sharpness))
+    text(ft,2,15,0,5,"Saturation")
+    text(ft,2,15,2,4,str(saturation))
+    text(ft,3,15,0,5,"AWB")
+    text(ft,3,15,2,4,str(awbs[awb]))
     if awb == 6:
-        text(4,15,0,5,"Red")
-        text(4,15,2,4,str(red)[0:3])
-        text(5,15,0,5,"Blue")
-        text(5,15,2,4,str(blue)[0:3])
+        text(ft,4,15,0,5,"Red")
+        text(ft,4,15,2,4,str(red)[0:3])
+        text(ft,5,15,0,5,"Blue")
+        text(ft,5,15,2,4,str(blue)[0:3])
 if mode == 0:
-    text(2,14,0,5,"Speed")
-    text(2,14,2,4,str(speed))
-text(3,14,0,5,"Gain")
+    text(ft,2,14,0,5,"Speed")
+    text(ft,2,14,2,4,str(speed))
+text(ft,3,14,0,5,"Gain")
 if gain != 0:
-    text(3,14,2,4,str(gain))
+    text(ft,3,14,2,4,str(gain))
 else:
-    text(3,14,2,4,"Auto")
-text(4,14,0,5,"Brightness")
-text(4,14,2,4,str(brightness))
-text(5,14,0,5,"Contrast")
-text(5,14,2,4,str(contrast))
-text(2,13,0,5,"Shutdown")
-sd_tim = (sd_hour * 60) + sd_mins
-sd_h = "0" + str(sd_hour)
-sd_hr = sd_h[-2:]
-sd_m = "0" + str(sd_mins)
-sd_mn = sd_m[-2:]
+    text(ft,3,14,2,4,"Auto")
+text(ft,4,14,0,5,"Brightness")
+text(ft,4,14,2,4,str(brightness))
+text(ft,5,14,0,5,"Contrast")
+text(ft,5,14,2,4,str(contrast))
+text(ft,2,13,0,5,"Shutdown")
+if use_suntimes == 1:
+	text(ft,2,13,0,5,"Sun R,S")
+	sr_tim = (int(sr_hour) * 60) + int(sr_mins)
+else:
+	sr_tim == 0
+	
+sd_tim = (int(sd_hour) * 60) + int(sd_mins)
+sd_h   = "0" + str(sd_hour)
+sd_hr  = sd_h[-2:]
+sd_m   = "0" + str(sd_mins)
+sd_mn  = sd_m[-2:]
+sr_h   = "0" + str(sr_hour)
+sr_hr  = sr_h[-2:]
+sr_m   = "0" + str(sr_mins)
+sr_mn  = sr_m[-2:]
 if synced == 1 and sd_tim != 0:
-    text(2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
+    if use_suntimes == 0:
+        text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
+    else:
+        text(ft-3,2,13,2,4,str(sr_hr) + ":" + str(sr_mn) + "," + str(sd_hr) + ":" + str(sd_mn))
 else:
-    text(2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
-text(3,13,0,5,"Pre S")
-text(3,13,2,4,str(pre_frames))
-text(4,13,0,5,"Video S")
-text(4,13,2,4,str(v_length))
-text(5,13,0,5,"Buzzer")
+    text(ft-3,2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
+text(ft,3,13,0,5,"Pre S")
+text(ft,3,13,2,4,str(pre_frames))
+text(ft,4,13,0,5,"Video S")
+text(ft,4,13,2,4,str(v_length))
+text(ft,5,13,0,5,"Buzzer")
 if use_buzz == 1:
-    text(5,13,2,4,"ON")
+    text(ft,5,13,2,4,"ON")
 else:
-    text(5,13,2,4,"OFF")
+    text(ft,5,13,2,4,"OFF")
     
 # wait for things to settle...
 time.sleep(5)
@@ -373,7 +471,7 @@ def show_last():
     image = pygame.image.load(Pics[p])
     image = pygame.transform.scale(image,(rw,rh))
     windowSurfaceObj.blit(image,(0,bh))
-    text(0,13,1,4,str(p+1) + "/" + str(p+1))
+    text(ft,0,13,1,4,str(p+1) + "/" + str(p+1))
     pic = Pics[p].split("/")
     pipc = h_user + '/Videos/' + pic[4][:-3] + "mp4"
     mp4 = pic[0] + "/" + pic[1] + "/" + pic[2] + "/Videos/" + pic[4][:-4] + ".mp4"
@@ -387,17 +485,17 @@ def show_last():
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         duration = frame_count / fpsv if fpsv else 0
         cap.release()
-        text(0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
-    text(5,0,1,3,"DEL ALL")
+        text(ft,0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
+    text(ft,5,0,1,3,"DEL ALL")
     if os.path.exists(pipc):
-        text(2,0,1,3,"DELETE")
+        text(ft,2,0,1,3,"DELETE")
         USB_Files  = []
         USB_Files  = (os.listdir(m_user))
         if len(USB_Files) > 0:
-            text(3,0,1,4,"  to USB")
+            text(ft,3,0,1,4,"  to USB")
   else:
-    text(0,1,1,0,"            ")
-    text(0,13,1,4,"0")
+    text(ft,0,1,1,0,"            ")
+    text(ft,0,13,1,4,"0")
   pygame.display.update()
   
 show_last()
@@ -423,7 +521,7 @@ def draw_objects(request): # on video & stills
                 x0, y0, x1, y1 = bbox
                 label = f"{class_name} %{int(score * 100)}"
                 cv2.rectangle(m.array, (x0, y0), (x1, y1), (0, 255, 0, 0), 4)
-                cv2.putText(m.array, label, (x0 + 5, y0 + 45),
+                cv2.puttext(ft,m.array, label, (x0 + 5, y0 + 45),
                             cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0, 0), 3, cv2.LINE_AA)
                             
 def draw_box(): # on stills only
@@ -496,7 +594,7 @@ if __name__ == "__main__":
         with Picamera2() as picam2:
             main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
             lores = {'size': (model_w, model_h), 'format': 'RGB888'}
-            if cam1 == "imx708":
+            if cam1 == "imx708" or cam1 == 'ov64a4': # Pi v3 or Arducam 64MB OWLSIGHT cameras
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
             else:
                 controls2 = {'FrameRate': fps}
@@ -566,6 +664,7 @@ if __name__ == "__main__":
                 
                 # capture frame
                 frame = picam2.capture_array('lores')
+                
                 # show zoomed image to assist focussing
                 if zoom == 1:
                     frame2 = picam2.capture_array('main')
@@ -576,7 +675,7 @@ if __name__ == "__main__":
                     image = pygame.transform.rotate(cropped,int(90))
                     image = pygame.transform.flip(image,0,1)
                     windowSurfaceObj.blit(image,(0,bh))
-                    text(0,13,1,4,"ZOOMED")
+                    text(ft,0,13,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
                     if maskoff == False:
@@ -585,6 +684,7 @@ if __name__ == "__main__":
                         # Run inference on the masked frame
                         results = hailo.run(frame3)
                         if start == 1:
+							# saved masked image
                             cv2.imwrite('frame3.bmp',frame3)
                             start = 0
                     else:
@@ -593,6 +693,7 @@ if __name__ == "__main__":
                
                 # Extract detections from the inference results
                 detections = extract_detections(results, video_w, video_h, class_names, args.score_thresh)
+                
                 # detection
                 for d in range(0,len(objects)):
                     if len(detections) != 0 or record == 1:
@@ -609,9 +710,9 @@ if __name__ == "__main__":
                             record = 0
                             if show_detects == 1:
                                 draw_box()
-                            text(5,13,1,6,"________")
-                            text(5,13,2,6,"________")
-                            text(5,13,0,5,"Recording")
+                            text(ft,5,13,1,6,"________")
+                            text(ft,5,13,2,6,"________")
+                            text(ft,5,13,0,5,"Recording")
                             if log == 1:
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -619,44 +720,46 @@ if __name__ == "__main__":
                                     f.write(timestamp + " " + objects[d] + "\n" )
                             # start recording
                             if not encoding and freeram > ram_limit:
-                                sta = time.monotonic()
                                 now = datetime.datetime.now()
-                                timestamp = now.strftime("%y%m%d_%H%M%S")
-                                if version == 2:
-                                    encoder.output.fileoutput = "/run/shm/" + str(timestamp) + '.h264'
-                                    encoder.output.start()
-                                else:
-                                    circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
-                                encoding = True
-                                print("New  Detection",timestamp + " " + objects[d])
-                                rec_led.on()
-                                # sound buzzer
-                                if use_buzz == 1:
-                                    buzzer.value = 0.01
-                                # save lores image
-                                cv2.imwrite(h_user + "/Pictures/" + str(timestamp) + ".jpg",frame)
-                                # show captured lores trigger image
-                                Pics = glob.glob(h_user + '/Pictures/*.jpg')
-                                Pics.sort()
-                                p = len(Pics) - 1
-                                img = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
-                                image = pygame.surfarray.make_surface(img)
-                                image = pygame.transform.scale(image,(rw,rh))
-                                image = pygame.transform.rotate(image,int(90))
-                                image = pygame.transform.flip(image,0,1)
-                                windowSurfaceObj.blit(image,(0,bh))
-                                text(0,13,1,4,str(p+1) + "/" + str(p+1))
-                                pic = Pics[p].split("/")
-                                text(0,12,1,4,str(pic[4]))
-                                pygame.display.update()
-                                time.sleep(0.5)
-                                if use_buzz == 1:
-                                    buzzer.value = 0
+                                sr_time = now.replace(hour=int(sr_hour),minute=int(sr_mins), second=0, microsecond=0)
+                                if use_suntimes == 0 or (use_suntimes == 1 and now > sr_time):
+                                    sta = time.monotonic()
+                                    timestamp = now.strftime("%y%m%d_%H%M%S")
+                                    if version == 2:
+                                        encoder.output.fileoutput = "/run/shm/" + str(timestamp) + '.h264'
+                                        encoder.output.start()
+                                    else:
+                                        circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
+                                    encoding = True
+                                    print("New  Detection",timestamp + " " + objects[d])
+                                    rec_led.on()
+                                    # sound buzzer
+                                    if use_buzz == 1:
+                                        buzzer.value = 0.01
+                                    # save lores image
+                                    cv2.imwrite(h_user + "/Pictures/" + str(timestamp) + ".jpg",frame)
+                                    # show captured lores trigger image
+                                    Pics = glob.glob(h_user + '/Pictures/*.jpg')
+                                    Pics.sort()
+                                    p = len(Pics) - 1
+                                    img = cv2.cvtColor(frame,cv2.COLOR_RGB2BGR)
+                                    image = pygame.surfarray.make_surface(img)
+                                    image = pygame.transform.scale(image,(rw,rh))
+                                    image = pygame.transform.rotate(image,int(90))
+                                    image = pygame.transform.flip(image,0,1)
+                                    windowSurfaceObj.blit(image,(0,bh))
+                                    text(ft,0,13,1,4,str(p+1) + "/" + str(p+1))
+                                    pic = Pics[p].split("/")
+                                    text(ft,0,12,1,4,str(pic[4]))
+                                    pygame.display.update()
+                                    time.sleep(0.5)
+                                    if use_buzz == 1:
+                                        buzzer.value = 0
                 
                 # show recording time                   
                 if encoding:
                     td = timedelta(seconds=int(time.monotonic()-sta))
-                    text(5,13,2,5,str(td))
+                    text(ft,5,13,2,5,str(td))
                     
                 # stop recording, if time out or low RAM
                 if encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit):
@@ -670,21 +773,21 @@ if __name__ == "__main__":
                     encoding = False
                     startmp4 = time.monotonic()
                     rec_led.off()
-                    text(0,12,1,4,str(pic[4][:-4] + ".mp4"))
-                    text(5,13,0,4,"          ")
-                    text(5,13,1,4,"          ")
-                    text(5,13,2,4,"          ")
-                    text(5,13,0,5,"Buzzer")
+                    text(ft,0,12,1,4,str(pic[4][:-4] + ".mp4"))
+                    text(ft,5,13,0,4,"          ")
+                    text(ft,5,13,1,4,"          ")
+                    text(ft,5,13,2,4,"          ")
+                    text(ft,5,13,0,5,"Buzzer")
                     if use_buzz == 1:
-                        text(5,13,2,4,"ON")
+                        text(ft,5,13,2,4,"ON")
                     else:
-                        text(5,13,2,4,"OFF")
+                        text(ft,5,13,2,4,"OFF")
 
                 # make mp4s
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
                     startmp4 = time.monotonic()
-                    # convert h264 to mp4
                     if version == 2:
+						# convert h264 to mp4
                         h264s = glob.glob('/run/shm/2*.h264')
                         h264s.sort(reverse = False)
                         for x in range(0,len(h264s)):
@@ -705,27 +808,27 @@ if __name__ == "__main__":
                         pic = Pics[p].split("/")
                         pipc = h_user + '/Videos/' + pic[4][:-3] + "mp4"
                         if os.path.exists(pipc):
-                            text(2,0,1,3,"DELETE")
-                            text(5,0,1,3,"DEL ALL")
+                            text(ft,2,0,1,3,"DELETE")
+                            text(ft,5,0,1,3,"DEL ALL")
                             if len(Pics) > 0:
-                                text(4,0,0,5,"Show")
-                                text(4,0,2,5,"Video")
+                                text(ft,4,0,0,5,"Show")
+                                text(ft,4,0,2,5,"Video")
                             USB_Files  = []
                             USB_Files  = (os.listdir(m_user))
                             if len(USB_Files) > 0:
-                                text(3,0,1,4,"  to USB")
+                                text(ft,3,0,1,4,"  to USB")
                         else:
-                            text(2,0,1,3,"    ")
-                            text(5,0,1,3,"    ")
-                            text(3,0,1,4,"    ")
-                            text(4,0,0,5,"    ")
-                            text(4,0,2,5,"     ")
+                            text(ft,2,0,1,3,"    ")
+                            text(ft,5,0,1,3,"    ")
+                            text(ft,3,0,1,4,"    ")
+                            text(ft,4,0,0,5,"    ")
+                            text(ft,4,0,2,5,"     ")
                     else:
-                        text(2,0,1,3,"    ")
-                        text(5,0,1,3,"    ")
-                        text(3,0,1,4,"    ")
-                        text(4,0,0,5,"    ")
-                        text(4,0,2,5,"     ")
+                        text(ft,2,0,1,3,"    ")
+                        text(ft,5,0,1,3,"    ")
+                        text(ft,3,0,1,4,"    ")
+                        text(ft,4,0,0,5,"    ")
+                        text(ft,4,0,2,5,"     ")
                         
                     # auto time shutdown
                     if sd_tim != 0:
@@ -734,17 +837,14 @@ if __name__ == "__main__":
                             synced = 1
                         else:
                             synced = 0
-                        sd_h = "0" + str(sd_hour)
-                        sd_hr = sd_h[-2:]
-                        sd_m = "0" + str(sd_mins)
-                        sd_mn = sd_m[-2:]
                         if synced == 1:
-                            text(2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
-                        else:
-                            text(2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
+                            if use_suntimes == 0:
+                                text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
+                            else:
+                                text(ft-3,2,13,2,4,str(sr_hr) + ":" + str(sr_mn) + "," + str(sd_hr) + ":" + str(sd_mn))
                         # check current hour and shutdown
                         now = datetime.datetime.now()
-                        sd_time = now.replace(hour=sd_hour, minute=sd_mins, second=0, microsecond=0)
+                        sd_time = now.replace(hour=int(sd_hour),minute=int(sd_mins), second=0, microsecond=0)
                         if now >= sd_time and time.monotonic() - start_up > 300 and synced == 1:
                             # move jpgs and mp4s to USB if present
                             time.sleep(2 * mp4_timer)
@@ -788,10 +888,10 @@ if __name__ == "__main__":
                             yo -= int((mousex - int(rw/2))/4)
                             xo -= int(((mousey-bh) - int(rh/2))/4)
                             
-                        # clear or set full mask (right or middle click on review window)
-                        elif mousey > bh and mousey < bh + rh and (event.button == 3 or event.button == 2) and zoom == 0:
+                        # clear or set full mask (middle click on review window)
+                        elif mousey > bh and mousey < bh + rh and (event.button == 2) and zoom == 0:
                             if smask == 1:
-                                if event.button == 3:
+                                if w == 0:
                                     w = 1
                                 else:
                                     w = 0
@@ -886,8 +986,44 @@ if __name__ == "__main__":
                                 if zoom > 1:
                                     zoom = 0
                                     show_last()
-                                    
-                        elif bcol == 2 and brow == 13:
+
+                        elif bcol == 2 and brow == 13 and event.button == 2:
+                            use_suntimes +=1
+                            if use_suntimes > 1:
+                                use_suntimes = 0
+                            if use_suntimes == 1:
+                                if impephem == 0:
+                                    import ephem
+                                    impephem = 1
+                                you = ephem.Observer()
+                                you.lat       = your_lat 
+                                you.lon       = your_lon 
+                                you.elevation = your_elev
+                                suntimes()
+                            if use_suntimes == 1:
+	                            text(ft,2,13,0,5,"Sun R,S")
+	                            #sr_tim = (int(sr_hour) * 60) + int(sr_mins)
+                            else:
+                                text(ft,2,13,0,5,"Shutdown")
+	                            #sr_tim == 0
+                            sd_tim = (int(sd_hour) * 60) + int(sd_mins)
+                            sd_h   = "0" + str(sd_hour)
+                            sd_hr  = sd_h[-2:]
+                            sd_m   = "0" + str(sd_mins)
+                            sd_mn  = sd_m[-2:]
+                            sr_h   = "0" + str(sr_hour)
+                            sr_hr  = sr_h[-2:]
+                            sr_m   = "0" + str(sr_mins)
+                            sr_mn  = sr_m[-2:]
+                            if synced == 1 and sd_tim != 0:
+                                if use_suntimes == 0:
+                                    text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
+                                else:
+                                    text(ft-3,2,13,2,4,str(sr_hr) + ":" + str(sr_mn) + "," + str(sd_hr) + ":" + str(sd_mn))
+                            else:
+                                text(ft-3,2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
+                                                                        
+                        elif bcol == 2 and brow == 13 and use_suntimes == 0:
                             # SHUTDOWN TIME
                             if (h == 0 and event.button == 3) or (h == 0 and event.button == 4):
                                 sd_hour +=1
@@ -917,9 +1053,10 @@ if __name__ == "__main__":
                             sd_mn = sd_m[-2:]
                             sd_tim = (sd_hour * 60) + sd_mins
                             if synced == 1 and sd_tim != 0:
-                                text(2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
+                                text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
                             else:
-                                text(2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
+                                text(ft-3,2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
+                                
                                                         
                         # Pre Frames
                         elif bcol == 3 and brow == 13:
@@ -928,7 +1065,7 @@ if __name__ == "__main__":
                             else:
                                 pre_frames -=1
                                 pre_frames = max(pre_frames,1)
-                            text(3,13,2,1,str(pre_frames))
+                            text(ft,3,13,2,1,str(pre_frames))
                             if version == 2:
                                 picam2.stop_recording()
                                 picam2.stop_encoder()
@@ -940,7 +1077,7 @@ if __name__ == "__main__":
                                 pref = pre_frames * 1000
                                 circular = CircularOutput2(buffer_duration_ms=pref)
                                 picam2.start_recording(encoder, circular)
-                            text(3,13,2,4,str(pre_frames))
+                            text(ft,3,13,2,4,str(pre_frames))
                             
                         # Video length
                         elif bcol == 4 and brow == 13:
@@ -949,19 +1086,19 @@ if __name__ == "__main__":
                             else:
                                 v_length -=1
                                 v_length = max(v_length,5)
-                            text(4,13,2,4,str(v_length))
+                            text(ft,4,13,2,4,str(v_length))
                             
                         # Buzzer ON/OFF
                         elif bcol == 5 and brow == 13:
                             if event.button == 3 or event.button == 4:
                                 use_buzz = 1
-                                text(5,13,2,4,"ON")
+                                text(ft,5,13,2,4,"ON")
                                 buzzer.value = 0.01
                                 time.sleep(0.5)
                                 buzzer.value = 0
                             else:
                                 use_buzz = 0
-                                text(5,13,2,4,"OFF")
+                                text(ft,5,13,2,4,"OFF")
                                                    
                         # camera control
                         # EV
@@ -973,8 +1110,8 @@ if __name__ == "__main__":
                                 ev -=1
                                 ev = max(ev,-20)
                             picam2.set_controls({"ExposureValue": ev/10})
-                            text(0,14,0,5,"EV")
-                            text(0,14,2,4,str(ev))
+                            text(ft,0,14,0,5,"EV")
+                            text(ft,0,14,2,4,str(ev))
                     
                         # MODE
                         elif bcol == 1 and brow == 14:
@@ -987,11 +1124,11 @@ if __name__ == "__main__":
                                 if mode < 0:
                                     mode = 3
                                 
-                            text(1,14,2,4,str(modes[mode]))
+                            text(ft,1,14,2,4,str(modes[mode]))
                             if mode == 0:
                                 picam2.set_controls({"AeEnable": False,"ExposureTime": speed,"AnalogueGain": gain})
-                                text(2,14,0,5,"Speed")
-                                text(2,14,2,4,str(speed))
+                                text(ft,2,14,0,5,"Speed")
+                                text(ft,2,14,2,4,str(speed))
                             else:
                                 if mode == 1:
                                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Normal,"AnalogueGain": gain})
@@ -999,8 +1136,8 @@ if __name__ == "__main__":
                                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Short,"AnalogueGain": gain})
                                 elif mode == 3:
                                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long,"AnalogueGain": gain})
-                                text(2,14,0,5," ")
-                                text(2,14,2,4," ")
+                                text(ft,2,14,0,5," ")
+                                text(ft,2,14,2,4," ")
                                 
                         # METER MODE
                         elif bcol == 0 and brow == 15:
@@ -1018,7 +1155,7 @@ if __name__ == "__main__":
                                 picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Spot})
                             elif meter == 2:
                                  picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
-                            text(0,15,2,4,str(meters[meter]))
+                            text(ft,0,15,2,4,str(meters[meter]))
                             
                         # SHUTTER SPEED
                         elif bcol == 2 and brow == 14 and mode == 0:
@@ -1029,7 +1166,7 @@ if __name__ == "__main__":
                                 speed -=1000
                                 speed = max(1000,speed)
                             picam2.set_controls({"AeEnable": False,"ExposureTime": speed,"AnalogueGain": gain})
-                            text(2,14,2,4,str(speed))
+                            text(ft,2,14,2,4,str(speed))
                             
                         # GAIN
                         elif bcol == 3 and brow == 14:
@@ -1041,9 +1178,9 @@ if __name__ == "__main__":
                                 gain = max(0,gain)
                             picam2.set_controls({"AnalogueGain": gain})
                             if gain != 0:
-                                text(3,14,2,4,str(gain))
+                                text(ft,3,14,2,4,str(gain))
                             else:
-                                text(3,14,2,4,"Auto")
+                                text(ft,3,14,2,4,"Auto")
                                 
                         # BRIGHTNESS        
                         elif bcol == 4 and brow == 14:
@@ -1054,7 +1191,7 @@ if __name__ == "__main__":
                                 brightness -=1
                                 brightness = max(brightness,0)
                             picam2.set_controls({"Brightness": brightness/10})
-                            text(4,14,2,4,str(brightness))
+                            text(ft,4,14,2,4,str(brightness))
                         
                         # CONTRAST
                         elif bcol == 5 and brow == 14:
@@ -1065,7 +1202,7 @@ if __name__ == "__main__":
                                 contrast -=1
                                 contrast = max(contrast,0)
                             picam2.set_controls({"Contrast": contrast/10})
-                            text(5,14,2,4,str(contrast))
+                            text(ft,5,14,2,4,str(contrast))
                             
                         # SHARPNESS    
                         elif bcol == 1 and brow == 15:
@@ -1076,7 +1213,7 @@ if __name__ == "__main__":
                                 sharpness -=1
                                 sharpness = max(sharpness,0)
                             picam2.set_controls({"Sharpness": sharpness})
-                            text(1,15,2,4,str(sharpness))
+                            text(ft,1,15,2,4,str(sharpness))
                         
                         # SATURATION
                         elif bcol == 2 and brow == 15:
@@ -1087,7 +1224,7 @@ if __name__ == "__main__":
                                 saturation -=1
                                 saturation = max(saturation,0)
                             picam2.set_controls({"Saturation": saturation/10})
-                            text(2,15,2,4,str(saturation))
+                            text(ft,2,15,2,4,str(saturation))
                         
                         # AWB setting    
                         elif bcol == 3 and brow == 15:
@@ -1113,17 +1250,17 @@ if __name__ == "__main__":
                                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Custom})
                                 cg = (red,blue)
                                 picam2.set_controls({"AwbEnable": False,"ColourGains": cg})
-                            text(3,15,2,4,str(awbs[awb]))
+                            text(ft,3,15,2,4,str(awbs[awb]))
                             if awb == 6:
-                                text(4,15,0,5,"Red")
-                                text(5,15,0,5,"Blue")
-                                text(4,15,2,4,str(red)[0:3])
-                                text(5,15,2,4,str(blue)[0:3])
+                                text(ft,4,15,0,5,"Red")
+                                text(ft,5,15,0,5,"Blue")
+                                text(ft,4,15,2,4,str(red)[0:3])
+                                text(ft,5,15,2,4,str(blue)[0:3])
                             else:
-                                text(4,15,0,5,"   ")
-                                text(5,15,0,5,"    ")
-                                text(4,15,2,4,"    ")
-                                text(5,15,2,4,"    ")
+                                text(ft,4,15,0,5,"   ")
+                                text(ft,5,15,0,5,"    ")
+                                text(ft,4,15,2,4,"    ")
+                                text(ft,5,15,2,4,"    ")
                         # RED
                         elif bcol == 4 and brow == 15 and awb == 6:
                             if event.button == 3 or event.button == 4:
@@ -1134,8 +1271,8 @@ if __name__ == "__main__":
                                 red = max(red,0.1)
                             cg = (red,blue)
                             picam2.set_controls({"ColourGains": cg})
-                            text(4,15,2,4,str(red)[0:3])
-                            text(5,15,2,4,str(blue)[0:3])
+                            text(ft,4,15,2,4,str(red)[0:3])
+                            text(ft,5,15,2,4,str(blue)[0:3])
                         
                         # BLUE
                         elif bcol == 5 and brow == 15 and awb == 6:
@@ -1147,11 +1284,11 @@ if __name__ == "__main__":
                                 blue = max(blue,0.1)
                             cg = (red,blue)
                             picam2.set_controls({"ColourGains": cg})
-                            text(4,15,2,4,str(red)[0:3])
-                            text(5,15,2,4,str(blue)[0:3])
+                            text(ft,4,15,2,4,str(red)[0:3])
+                            text(ft,5,15,2,4,str(blue)[0:3])
                             
-                        # show previous
-                        elif bcol == 0 and brow == 0:
+                        # show previous or EXIT from mask editting
+                        elif (bcol == 0 and brow == 0) or (smask == 1 and mousey > bh and mousey < bh + rh and (event.button == 3) and zoom == 0):
                             smask = 0
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
@@ -1163,9 +1300,9 @@ if __name__ == "__main__":
                                 image = pygame.image.load(Pics[p])
                                 image = pygame.transform.scale(image,(rw,rh))
                                 windowSurfaceObj.blit(image,(0,bh))
-                                text(0,13,1,4,str(p+1) + "/" + str(p+1))
+                                text(ft,0,13,1,4,str(p+1) + "/" + str(p+1))
                                 pic = Pics[p].split("/")
-                                text(0,12,1,4,str(pic[4]))
+                                text(ft,0,12,1,4,str(pic[4]))
                                 pygame.display.update()
                                 
                         # show next
@@ -1181,9 +1318,9 @@ if __name__ == "__main__":
                                 image = pygame.image.load(Pics[p])
                                 image = pygame.transform.scale(image,(rw,rh))
                                 windowSurfaceObj.blit(image,(0,bh))
-                                text(0,13,1,4,str(p+1) + "/" + str(p+1))
+                                text(ft,0,13,1,4,str(p+1) + "/" + str(p+1))
                                 pic = Pics[p].split("/")
-                                text(0,12,1,4,str(pic[4]))
+                                text(ft,0,12,1,4,str(pic[4]))
                                 pygame.display.update()
                                 
                         # delete picture and video
@@ -1227,11 +1364,11 @@ if __name__ == "__main__":
                                 os.remove(Pics[w])
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             p = 0
-                            text(2,0,1,3,"    ")
-                            text(5,0,1,3,"    ")
-                            text(3,0,1,4,"    ")
-                            text(4,0,0,5,"    ")
-                            text(4,0,2,5,"     ")
+                            text(ft,2,0,1,3,"    ")
+                            text(ft,5,0,1,3,"    ")
+                            text(ft,3,0,1,4,"    ")
+                            text(ft,4,0,0,5,"    ")
+                            text(ft,4,0,2,5,"     ")
                             
                         # move picture and video to USB
                         elif bcol == 3 and brow == 0 and event.button != 3:
@@ -1249,7 +1386,7 @@ if __name__ == "__main__":
                                 USB_Files  = []
                                 USB_Files  = (os.listdir(m_user))
                                 if len(USB_Files) > 0:
-                                    text(3,0,1,3,"  to USB")
+                                    text(ft,3,0,1,3,"  to USB")
                                     if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Videos/") :
                                         os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Videos/")
                                     if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Pictures/") :
@@ -1270,7 +1407,7 @@ if __name__ == "__main__":
                                 Pics = glob.glob(h_user + '/Pictures/*.jpg')
                                 Pics.sort()
                                 if len(Pics) > 0 and len(USB_Files) > 0:
-                                    text(3,0,1,4,"  to USB")
+                                    text(ft,3,0,1,4,"  to USB")
                               except:
                                 pass
                             if p > len(Pics) - 1:
@@ -1295,7 +1432,7 @@ if __name__ == "__main__":
                                 USB_Files  = []
                                 USB_Files  = (os.listdir(m_user))
                                 if len(USB_Files) > 0:
-                                    text(3,0,1,3,"  to USB")
+                                    text(ft,3,0,1,3,"  to USB")
                                     # make directories (if required)
                                     if not os.path.exists(m_user + "/'" + USB_Files[0] + "'/Videos") :
                                         os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Videos")
@@ -1305,7 +1442,7 @@ if __name__ == "__main__":
                                     USB_storage = ((1 - (usedusb.f_bavail / usedusb.f_blocks)) * 100)
                                 if len(USB_Files) > 0 and USB_storage < 90:
                                     for w in range(0,len(Videos)):
-                                        text(0,13,1,4,str(w+1) + "/" + str(len(Videos)))
+                                        text(ft,0,13,1,4,str(w+1) + "/" + str(len(Videos)))
                                         vid = Videos[w].split("/")
                                         image = pygame.image.load("/" + vid[1] + "/" + vid[2] + "/Pictures/" + vid[4][:-3] + "jpg")
                                         image = pygame.transform.scale(image,(rw,rh))
@@ -1317,7 +1454,7 @@ if __name__ == "__main__":
                                         pic = Pics[w].split("/")
                                         if not os.path.exists(m_user + "/" + USB_Files[0] + "/Pictures/" + pic[4]):
                                             shutil.move(Pics[w],m_user + "/" + USB_Files[0] + "/Pictures/")
-                                    text(3,0,1,4,"  to USB")
+                                    text(ft,3,0,1,4,"  to USB")
                                 Videos = glob.glob(h_user + '/Videos/*.mp4')
                                 Videos.sort()
                                 Pics = glob.glob(h_user + '/Pictures/*.jpg')
@@ -1433,38 +1570,38 @@ if __name__ == "__main__":
                         if len(Pics) > 0:
                             pic = Pics[p].split("/")
                             pipc = h_user + '/Videos/' + pic[4][:-3] + "mp4"
-                            text(5,0,1,3,"DEL ALL")
+                            text(ft,5,0,1,3,"DEL ALL")
                             if os.path.exists(pipc):
-                                text(2,0,1,3,"DELETE")
+                                text(ft,2,0,1,3,"DELETE")
                                 USB_Files  = []
                                 USB_Files  = (os.listdir(m_user))
                                 if len(USB_Files) > 0:
-                                    text(3,0,1,4,"  to USB")
+                                    text(ft,3,0,1,4,"  to USB")
                             else:
-                                text(2,0,1,0,"    ")
-                                text(3,0,1,0,"    ")
+                                text(ft,2,0,1,0,"    ")
+                                text(ft,3,0,1,0,"    ")
                         else:
-                            text(2,0,1,0,"    ")
-                            text(5,0,1,0,"    ")
-                            text(3,0,1,0,"    ")
+                            text(ft,2,0,1,0,"    ")
+                            text(ft,5,0,1,0,"    ")
+                            text(ft,3,0,1,0,"    ")
                             #pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
 
                         if len(Pics) > 0 :
                             pic = Pics[p].split("/")
-                            text(0,13,1,4,str(p+1) + "/" + str(len(Pics)))
+                            text(ft,0,13,1,4,str(p+1) + "/" + str(len(Pics)))
                             pic = Pics[p].split("/")
                             mp4 = pic[0] + "/" + pic[1] + "/" + pic[2] + "/Videos/" + pic[4][:-4] + ".mp4"
                             cap = cv2.VideoCapture(mp4)
                             if not cap.isOpened() and smask == 0:
-                                text(0,12,1,4,str(pic[4]))
+                                text(ft,0,12,1,4,str(pic[4]))
                             elif smask == 0:
                                 fpsv = cap.get(cv2.CAP_PROP_FPS)
                                 frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
                                 duration = frame_count / fpsv if fpsv else 0
                                 cap.release()
-                                text(0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
+                                text(ft,0,12,1,4,str(pic[4][:-4]) + ".mp4 : " + str(int(duration)) + "s")
                         elif smask == 0:
-                            text(0,13,1,4,"0")
+                            text(ft,0,13,1,4,"0")
                         pygame.display.update()
                         
                         # save config
