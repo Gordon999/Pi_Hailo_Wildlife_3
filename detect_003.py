@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.77
+# v0.79
 
 import argparse
 import cv2
@@ -44,7 +44,7 @@ import numpy as np
 your_lat     = '51.0000000' # set your location latitude
 your_lon     = '-1.0000000' # set your location longtitude
 your_elev    = 100          # set your location height in metres
-UTC_offset   = 0            # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
+UTC_offset   = 1            # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
 use_suntimes = 0            # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
 
 # choose detect version
@@ -86,9 +86,9 @@ speed        = 1000  # manual shutter speed in mS
 gain         = 0     # set camera gain, 0 = auto
 meter        = 2     # set meter mode, (see meters below), 2 = Matrix
 brightness   = 0     # set brightness
-contrast     = 8     # set contrast
+contrast     = 10    # set contrast
 ev           = 0     # set eV
-sharpness    = 10    # set sharpness
+sharpness    = 11    # set sharpness
 saturation   = 10    # set saturation
 awb          = 0     # set awb mode, (see awbs below), 0 = auto
 red          = 10    # set red, only in awb custom mode
@@ -187,9 +187,9 @@ windowSurfaceObj = pygame.display.set_mode((rw,ch),1, 24)
 pygame.display.set_caption("Review Captures" )
 
 # check Det_ConfigX.txt exists, if not then write default values
-config_file = "Det_Config6.txt"
+config_file = "Det_Config7.txt"
 if not os.path.exists(config_file):
-    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz]
+    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz,use_suntimes]
     with open(config_file, 'w') as f:
         for item in defaults:
             f.write("%s\n" % item)
@@ -202,23 +202,24 @@ with open(config_file, "r") as file:
       defaults.append(line.strip())
       line = file.readline()
 defaults = list(map(int,defaults))
-mode       = defaults[0]
-speed      = defaults[1]
-gain       = defaults[2]
-meter      = defaults[3]
-brightness = defaults[4]
-contrast   = defaults[5]
-ev         = defaults[6]
-sharpness  = defaults[7]
-saturation = defaults[8]
-awb        = defaults[9]
-red        = defaults[10]/10
-blue       = defaults[11]/10
-sd_hour    = defaults[12]
-sd_mins    = defaults[13]
-pre_frames = defaults[14]
-v_length   = defaults[15]
-use_buzz   = defaults[16]
+mode         = defaults[0]
+speed        = defaults[1]
+gain         = defaults[2]
+meter        = defaults[3]
+brightness   = defaults[4]
+contrast     = defaults[5]
+ev           = defaults[6]
+sharpness    = defaults[7]
+saturation   = defaults[8]
+awb          = defaults[9]
+red          = defaults[10]/10
+blue         = defaults[11]/10
+sd_hour      = defaults[12]
+sd_mins      = defaults[13]
+pre_frames   = defaults[14]
+v_length     = defaults[15]
+use_buzz     = defaults[16]
+use_suntimes = defaults[17]
 
 def suntimes():
     global sd_hour,sd_mins,sr_hour,sr_mins,UTC_offset
@@ -273,7 +274,9 @@ if use_suntimes == 1:
     you.elevation = your_elev
     suntimes()
 else:
-	impephem = 0
+    impephem = 0
+    sr_hour  = 0
+    sr_mins  = 0
 
 # define colors
 global greyColor, dgryColor, whiteColor, redColor, greenColor,yellowColor,dredColor,blackColor
@@ -364,22 +367,27 @@ if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"
     synced = 1
 else:
     synced = 0
+    
+#check Pi model.
+Pi = -1
+model = os.popen("cat /proc/device-tree/model").read()
+mod = model.split(" ")
+Pi = int(mod[2])
+print("Pi:",Pi)
+if Pi < 5:
+    print("This is NOT a Pi5 !!")
+    exit()
 
 # find camera version
 def Camera_Version():
     global cam1
-    if os.path.exists('/run/shm/libcams.txt'):
-        os.rename('/run/shm/libcams.txt', '/run/shm/oldlibcams.txt')
-    os.system("rpicam-vid --list-cameras >> /run/shm/libcams.txt")
+    cams = os.popen("rpicam-vid --list-cameras").read()
     time.sleep(0.5)
-    # read libcams.txt file
-    camstxt = []
-    with open("/run/shm/libcams.txt", "r") as file:
-        line = file.readline()
-        while line:
-            camstxt.append(line.strip())
-            line = file.readline()
-    cam1 = camstxt[2][4:10]
+    cam = cams.split("\n")
+    for w in range(0,len(cam)):
+        if cam[w][0:1] == "0":
+            cam0 = cam[w].split(":")
+            cam1 = cam0[1][1:7]
 Camera_Version()
 
 # Draw Screen
@@ -433,17 +441,18 @@ if use_suntimes == 1:
 	text(ft,2,13,0,5,"Sun R,S")
 	sr_tim = (int(sr_hour) * 60) + int(sr_mins)
 else:
-	sr_tim == 0
+	sr_tim = 0
 	
 sd_tim = (int(sd_hour) * 60) + int(sd_mins)
 sd_h   = "0" + str(sd_hour)
 sd_hr  = sd_h[-2:]
 sd_m   = "0" + str(sd_mins)
 sd_mn  = sd_m[-2:]
-sr_h   = "0" + str(sr_hour)
-sr_hr  = sr_h[-2:]
-sr_m   = "0" + str(sr_mins)
-sr_mn  = sr_m[-2:]
+if use_suntimes == 1:
+    sr_h   = "0" + str(sr_hour)
+    sr_hr  = sr_h[-2:]
+    sr_m   = "0" + str(sr_mins)
+    sr_mn  = sr_m[-2:]
 if synced == 1 and sd_tim != 0:
     if use_suntimes == 0:
         text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
@@ -462,7 +471,7 @@ else:
     text(ft,5,13,2,4,"OFF")
     
 # wait for things to settle...
-time.sleep(5)
+time.sleep(10)
 
 def show_last():
   # show last captured image, if present  
@@ -662,7 +671,7 @@ if __name__ == "__main__":
                 st = os.statvfs("/run/shm/")
                 freeram = (st.f_bavail * st.f_frsize)/1100000
                 
-                # capture frame
+                # capture lores frame
                 frame = picam2.capture_array('lores')
                 
                 # show zoomed image to assist focussing
@@ -721,7 +730,7 @@ if __name__ == "__main__":
                             # start recording
                             if not encoding and freeram > ram_limit:
                                 now = datetime.datetime.now()
-                                sr_time = now.replace(hour=int(sr_hour),minute=int(sr_mins), second=0, microsecond=0)
+                                sr_time = now.replace(hour=int(sr_hour),minute=int(sr_mins), second=1, microsecond=0)
                                 if use_suntimes == 0 or (use_suntimes == 1 and now > sr_time):
                                     sta = time.monotonic()
                                     timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -885,11 +894,15 @@ if __name__ == "__main__":
                             
                         # move zoom window
                         if zoom == 1 and mousey > bh and mousey < bh + rh:
-                            yo -= int((mousex - int(rw/2))/4)
-                            xo -= int(((mousey-bh) - int(rh/2))/4)
+                            if event.button == 3 or event.button == 4:
+                                yo -= int((mousex - int(rw/2))/4)
+                                xo -= int(((mousey-bh) - int(rh/2))/4)
+                            if event.button == 1 or event.button == 5:
+                                yo += int((mousex - int(rw/2))/4)
+                                xo += int(((mousey-bh) - int(rh/2))/4)
                             
                         # clear or set full mask (middle click on review window)
-                        elif mousey > bh and mousey < bh + rh and (event.button == 2) and zoom == 0:
+                        elif mousey > bh and mousey < bh + rh and event.button == 2 and zoom == 0:
                             if smask == 1:
                                 if w == 0:
                                     w = 1
@@ -1002,10 +1015,8 @@ if __name__ == "__main__":
                                 suntimes()
                             if use_suntimes == 1:
 	                            text(ft,2,13,0,5,"Sun R,S")
-	                            #sr_tim = (int(sr_hour) * 60) + int(sr_mins)
                             else:
                                 text(ft,2,13,0,5,"Shutdown")
-	                            #sr_tim == 0
                             sd_tim = (int(sd_hour) * 60) + int(sd_mins)
                             sd_h   = "0" + str(sd_hour)
                             sd_hr  = sd_h[-2:]
@@ -1056,7 +1067,6 @@ if __name__ == "__main__":
                                 text(ft-3,2,13,2,4,"   " + str(sd_hr) + ":" + str(sd_mn))
                             else:
                                 text(ft-3,2,13,2,1,"   " + str(sd_hr) + ":" + str(sd_mn))
-                                
                                                         
                         # Pre Frames
                         elif bcol == 3 and brow == 13:
@@ -1261,6 +1271,7 @@ if __name__ == "__main__":
                                 text(ft,5,15,0,5,"    ")
                                 text(ft,4,15,2,4,"    ")
                                 text(ft,5,15,2,4,"    ")
+
                         # RED
                         elif bcol == 4 and brow == 15 and awb == 6:
                             if event.button == 3 or event.button == 4:
@@ -1461,7 +1472,6 @@ if __name__ == "__main__":
                                 Pics.sort()
                               except:
                                   pass
-                                
                             if p > len(Pics) - 1:
                                 p -= 1
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
@@ -1540,7 +1550,6 @@ if __name__ == "__main__":
                                              Pics = glob.glob(h_user + '/Pictures/*.jpg')
                                              for x in range(0,len(Pics)):
                                                  os.remove(Pics[x])
-                       
                               Videos = glob.glob(h_user + '/Videos/******_******.mp4')
                               USB_Files  = (os.listdir(m_user))
                               Videos.sort()
@@ -1622,6 +1631,7 @@ if __name__ == "__main__":
                         defaults[14] = pre_frames
                         defaults[15] = v_length 
                         defaults[16] = use_buzz
+                        defaults[17] = use_suntimes
                         
                         with open(config_file, 'w') as f:
                             for item in defaults:
