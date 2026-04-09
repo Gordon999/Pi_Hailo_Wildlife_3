@@ -1,12 +1,12 @@
 # Pi_Hailo_Wildlife_3
 
-Pi5 + Hailo HAT (8L or 10H) + PI Camera to capture Wildlife videos in MP4 directly.
+Pi5 + Hailo HAT (8L or 10H) + PI Camera to capture Wildlife videos in MP4.
 
 ## Screenshot...(Note there is no red squirrel in the objects list, so it sees them as bears or cats !!)
 
 ![screenshot](screenshot.jpg)
 
-## My Camera setup... note l have now changed to the Pi 5" Touch2 DSI display...
+## My Camera setup... note I have now changed to the Pi 5" Touch2 DSI display...
 
 ![screenshot](camera.jpg)
 
