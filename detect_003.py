@@ -88,7 +88,7 @@ meter        = 2     # set meter mode, (see meters below), 2 = Matrix
 brightness   = 0     # set brightness
 contrast     = 10    # set contrast
 ev           = 0     # set eV
-sharpness    = 11    # set sharpness
+sharpness    = 6     # set sharpness
 saturation   = 10    # set saturation
 awb          = 0     # set awb mode, (see awbs below), 0 = auto
 red          = 10    # set red, only in awb custom mode
