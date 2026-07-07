@@ -687,6 +687,7 @@ if __name__ == "__main__":
                     cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)) - xo, int((v_height/2)-(rh/2)) - yo, rw, rh))
                     image = pygame.transform.rotate(cropped,int(90))
                     image = pygame.transform.flip(image,0,1)
+					windowSurfaceObj.blit(image,(0,bh))
                     text(ft,1,0,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
