@@ -33,6 +33,8 @@ reboot
 
 sudo apt install python3-opencv -y
 
+sudo pip install ephem --break-system-packages
+
 to autostart at boot if using labwc...
 
 (note: change XXXX to your username)
