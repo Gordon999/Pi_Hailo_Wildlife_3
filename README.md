@@ -55,7 +55,7 @@ v_width and v_height are set for a Pi GS camera, you may need to change to suit 
 
 Runs a pre-capture buffer of approx 5 seconds by default
 
-you can set the objects to detect in line 47, objects = ["cat","bear","bird"], the objects must be in coco.txt file
+you can set the objects to detect in line 51, objects = ["cat","bear","bird"], the objects must be in coco.txt file
 
 Copy detect_003.py into /home/USERNAME/picamera2/examples/hailo/
 
@@ -69,7 +69,7 @@ python3 detect_003.py
 
 When running you will see 2 windows, a live window and a capture review and control window.
 
-right clicking on the 6/13 button (in the image above) will zoom in to help with focussing the camera.
+Zoom will zoom in to help with focussing the camera.
 
 To mask an area of detection LEFT click on the review window (when NOT ZOOMED). The masking is based on a grid.
 Default grid 32x32 but user settable. Set gridmask parameter.
