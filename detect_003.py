@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v0.79
+# v1.02
 
 import argparse
 import cv2
@@ -41,14 +41,11 @@ from pygame.locals import *
 import numpy as np
 
 # Your Location
-your_lat     = '51.0000000' # set your location latitude
-your_lon     = '-1.0000000' # set your location longtitude
-your_elev    = 100          # set your location height in metres
-UTC_offset   = 1            # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
-use_suntimes = 0            # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
-
-# choose detect version
-version      = 3     # choose 2 or 3 (2 makes h264 and converts to MP4, 3 makes MP4)
+your_lat     = '51.00' # set your location latitude
+your_lon     = '-1.00' # set your location longtitude
+your_elev    = 100     # set your location height in metres
+UTC_offset   = 1       # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
+use_suntimes = 0       # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
 
 # detection objects
 objects = ["cat","bear","dog","clock"]
@@ -67,28 +64,28 @@ show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 
 log          = 0     # set to 1 to make a log of detections in detect_log.txt
 v_width      = 1088  # video width
 v_height     = 1088  # video height
-fps          = 30    # video frame rate
-bitrate      = 10    # video bitrate in MB
 v_length     = 10    # seconds, minimum video length
 pre_frames   = 5     # seconds, defines length of pre-detection buffer
 h_flip       = 0     # set to 1 to flip horizontally 
 v_flip       = 0     # set to 1 to flip vertically
-mp4_fps      = 30    # mp4 frame rate
-mp4_timer    = 10    # seconds, convert h264s to mp4s after this time if no detections
+mp4_timer    = 10    # seconds, move MP4s to SD card after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
 led          = 21    # recording led gpio
 zmtime       = 30    # zoom timeout
 gridmask     = 32    # resolution of masking grid, eg 4 to 64.
+gridcolor    = (255,255,255) # mask grid color
 
 # default camera settings, note these will be overwritten if changed whilst running
 mode         = 1     # camera mode, (see modes below), 1 = normal
+fps          = 25    # video frame rate
+bitrate      = 8     # video bitrate in MB
 speed        = 1000  # manual shutter speed in mS
 gain         = 0     # set camera gain, 0 = auto
 meter        = 2     # set meter mode, (see meters below), 2 = Matrix
 brightness   = 0     # set brightness
 contrast     = 10    # set contrast
 ev           = 0     # set eV
-sharpness    = 6     # set sharpness
+sharpness    = 7     # set sharpness
 saturation   = 10    # set saturation
 awb          = 0     # set awb mode, (see awbs below), 0 = auto
 red          = 10    # set red, only in awb custom mode
@@ -137,10 +134,7 @@ else: # 800 x 480
     ds = 0
     dg = 0
     
-if version == 2:
-	from picamera2.outputs import CircularOutput
-else:
-    from picamera2.outputs import CircularOutput2, PyavOutput
+from picamera2.outputs import CircularOutput2, PyavOutput
 
 # load a pre-defined mask if available 
 if os.path.exists('Mask1.bmp'):
@@ -187,9 +181,9 @@ windowSurfaceObj = pygame.display.set_mode((rw,ch),1, 24)
 pygame.display.set_caption("Review Captures" )
 
 # check Det_ConfigX.txt exists, if not then write default values
-config_file = "Det_Config7.txt"
+config_file = "Det_Config10.txt"
 if not os.path.exists(config_file):
-    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz,use_suntimes]
+    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz,use_suntimes,bitrate]
     with open(config_file, 'w') as f:
         for item in defaults:
             f.write("%s\n" % item)
@@ -220,6 +214,7 @@ pre_frames   = defaults[14]
 v_length     = defaults[15]
 use_buzz     = defaults[16]
 use_suntimes = defaults[17]
+bitrate      = defaults[18]
 
 def suntimes():
     global sd_hour,sd_mins,sr_hour,sr_mins,UTC_offset
@@ -355,7 +350,7 @@ Pics.sort()
 record   = 0
 sd_tim   = (sd_hour * 60) + sd_mins
 zoom     = 0
-bitrate  = bitrate * 1000000
+bitrate2 = bitrate * 1000000
 xo       = 0
 yo       = 0
 smask    = 0
@@ -399,9 +394,10 @@ if screen == 1:
     pygame.draw.rect(windowSurfaceObj,(130,130,130),Rect(0,rh + bh,rw,bh))
 for y in range(1,6):
     button(y,13,bw,bh,0)
-text(ft,0,0,1,5,"< PREV")
+text(ft,0,0,0,5,"PREV/")
+text(ft,0,0,2,5,"      NEXT")
 text(ft,0,1,1,5,"Initialising  ")
-text(ft,1,0,1,5,"NEXT >")
+text(ft,1,0,1,5,"    Zoom")
 if len(Pics) > 0:
     text(ft,4,0,0,5,"Show")
     text(ft,4,0,2,5,"Video")
@@ -427,6 +423,9 @@ if cam1 != "ov9281":
 if mode == 0:
     text(ft,2,14,0,5,"Speed")
     text(ft,2,14,2,4,str(speed))
+else:
+    text(ft,2,14,0,5,"Bitrate")
+    text(ft,2,14,2,4,str(bitrate))
 text(ft,3,14,0,5,"Gain")
 if gain != 0:
     text(ft,3,14,2,4,str(gain))
@@ -471,7 +470,7 @@ else:
     text(ft,5,13,2,4,"OFF")
     
 # wait for things to settle...
-time.sleep(10)
+#time.sleep(10)
 
 def show_last():
   # show last captured image, if present  
@@ -560,13 +559,34 @@ def apply_timestamp(request):
           end_point = tuple(lst)
           cv2.rectangle(m.array, origin, end_point, (0,0,0), -1) 
           cv2.putText(m.array, timestamp, origin, font, scale, colour, thickness)
+          
+# start circular buffer
+def start_buffer():
+    global picam2,encoding,vlen_time,circular,bitrate2,encoder,fps,model_h, model_w,video_w, video_h,pre_frames,cam1
+    lsize = (model_w, model_h)
+    picam2 = Picamera2()
+    picam2.start_preview(Preview.QT, x=0, y=0, width=model_w, height=model_h)
+    video_config = picam2.create_video_configuration(main={"size": (video_w,video_h), "format": "XRGB8888"},
+                                             lores={"size": lsize, "format": "RGB888"},display="lores")
+    picam2.configure(video_config)
+    encoder = H264Encoder(bitrate2, repeat=True)
+    pref = pre_frames * 1000
+    circular = CircularOutput2(buffer_duration_ms=pref)
+    picam2.pre_callback = apply_timestamp
+    if cam1 == "imx708" or cam1 == 'ov64a4': # Pi v3 or Arducam 64MB OWLSIGHT cameras
+        picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
+        picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
+    picam2.set_controls({"FrameRate": fps})
+    picam2.start_recording(encoder, circular)
+    encoding = False
+    vlen_time = 0
         
 # main loop
 if __name__ == "__main__":
 
     # get camera version
     Camera_Version()
-
+    
     # Parse command-line arguments.
     parser = argparse.ArgumentParser(description="Detection Example")
     if hailo_architecture() == 'HAILO10H':
@@ -600,32 +620,16 @@ if __name__ == "__main__":
         detections = None
 
         # Configure and start Picamera2.
-        with Picamera2() as picam2:
-            main  = {'size': (video_w, video_h), 'format': 'XRGB8888'}
-            lores = {'size': (model_w, model_h), 'format': 'RGB888'}
+        x = 0
+        if x == 0:
+            start_buffer()
+            x = 1
+            if show_detects == 2:
+                picam2.pre_callback = draw_objects
             if cam1 == "imx708" or cam1 == 'ov64a4': # Pi v3 or Arducam 64MB OWLSIGHT cameras
                 controls2 = {'FrameRate': fps,"AfMode": controls.AfModeEnum.Continuous,"AfTrigger": controls.AfTriggerEnum.Start}
             else:
                 controls2 = {'FrameRate': fps}
-            config = picam2.create_preview_configuration(main, lores=lores, controls=controls2, transform=Transform(hflip = h_flip, vflip = v_flip))
-            picam2.configure(config)
-            if version == 2:
-                encoder = H264Encoder(bitrate, repeat=True)
-                encoder.output = CircularOutput(buffersize = pre_frames * fps)
-                picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
-                picam2.start()
-                picam2.start_encoder(encoder)
-            else:
-                encoder = H264Encoder(bitrate)
-                pref = pre_frames * 1000
-                circular = CircularOutput2(buffer_duration_ms=pref)
-                picam2.start_preview(Preview.QTGL, x=ds, y=1, width=cw, height=ch)
-                picam2.start_recording(encoder, circular)
-            picam2.pre_callback = apply_timestamp
-            picam2.title_fields = ["ExposureTime"]
-            encoding = False
-            if show_detects == 2:
-                picam2.pre_callback = draw_objects
             picam2.set_controls({"AnalogueGain": gain})
             picam2.set_controls({"Brightness": brightness/10})
             picam2.set_controls({"Contrast": contrast/10})
@@ -683,8 +687,7 @@ if __name__ == "__main__":
                     cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)) - xo, int((v_height/2)-(rh/2)) - yo, rw, rh))
                     image = pygame.transform.rotate(cropped,int(90))
                     image = pygame.transform.flip(image,0,1)
-                    windowSurfaceObj.blit(image,(0,bh))
-                    text(ft,0,13,1,4,"ZOOMED")
+                    text(ft,1,0,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
                     if maskoff == False:
@@ -719,9 +722,9 @@ if __name__ == "__main__":
                             record = 0
                             if show_detects == 1:
                                 draw_box()
-                            text(ft,5,13,1,6,"________")
-                            text(ft,5,13,2,6,"________")
-                            text(ft,5,13,0,5,"Recording")
+                            text(ft,1,13,1,6,"________")
+                            text(ft,1,13,2,6,"________")
+                            text(ft,1,13,0,5,"Recording")
                             if log == 1:
                                 now = datetime.datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
@@ -734,11 +737,7 @@ if __name__ == "__main__":
                                 if use_suntimes == 0 or (use_suntimes == 1 and now > sr_time):
                                     sta = time.monotonic()
                                     timestamp = now.strftime("%y%m%d_%H%M%S")
-                                    if version == 2:
-                                        encoder.output.fileoutput = "/run/shm/" + str(timestamp) + '.h264'
-                                        encoder.output.start()
-                                    else:
-                                        circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
+                                    circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
                                     encoding = True
                                     print("New  Detection",timestamp + " " + objects[d])
                                     rec_led.on()
@@ -768,46 +767,28 @@ if __name__ == "__main__":
                 # show recording time                   
                 if encoding:
                     td = timedelta(seconds=int(time.monotonic()-sta))
-                    text(ft,5,13,2,5,str(td))
+                    text(ft,1,13,2,5,str(td))
                     
                 # stop recording, if time out or low RAM
                 if encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit):
                     now = datetime.datetime.now()
                     timestamp2 = now.strftime("%y%m%d_%H%M%S")
                     print("Stopped Record", timestamp2)
-                    if version == 2:
-                        encoder.output.stop()
-                    else:
-                        circular.close_output()
+                    circular.close_output()
                     encoding = False
                     startmp4 = time.monotonic()
                     rec_led.off()
                     text(ft,0,12,1,4,str(pic[4][:-4] + ".mp4"))
-                    text(ft,5,13,0,4,"          ")
-                    text(ft,5,13,1,4,"          ")
-                    text(ft,5,13,2,4,"          ")
-                    text(ft,5,13,0,5,"Buzzer")
-                    if use_buzz == 1:
-                        text(ft,5,13,2,4,"ON")
-                    else:
-                        text(ft,5,13,2,4,"OFF")
+                    text(ft,1,13,0,4,"          ")
+                    text(ft,1,13,1,4,"          ")
+                    text(ft,1,13,2,4,"          ")
+                    text(ft,1,13,1,3,"RECORD")
 
-                # make mp4s
+                # move mp4s from RAM to SD card
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
                     startmp4 = time.monotonic()
-                    if version == 2:
-						# convert h264 to mp4
-                        h264s = glob.glob('/run/shm/2*.h264')
-                        h264s.sort(reverse = False)
-                        for x in range(0,len(h264s)):
-                            print(h264s[x][:-5] + '.mp4')
-                            cmd = 'ffmpeg -framerate ' + str(mp4_fps) + ' -i ' + h264s[x] + " -c copy " + h264s[x][:-5] + '.mp4'
-                            os.system(cmd)
-                            os.remove(h264s[x])
-                            print("Saved",h264s[x][:-5] + '.mp4')
                     Videos = glob.glob('/run/shm/*.mp4')
                     Videos.sort()
-                    # move Video RAM mp4s to SD card
                     for xx in range(0,len(Videos)):
                         if not os.path.exists(h_user + "/" + '/Videos/' + Videos[xx]):
                             shutil.move(Videos[xx], h_user + '/Videos/')
@@ -931,6 +912,10 @@ if __name__ == "__main__":
                             image = image * mask
                             image = pygame.surfarray.make_surface(image)
                             image = pygame.transform.scale(image,(rw,rh))
+                            # draw mask grid
+                            for l in range(0,gridmask):
+                                pygame.draw.line(image, gridcolor, [0,l * (rw/gridmask)], [rw,l * (rw/gridmask)], 1)
+                                pygame.draw.line(image, gridcolor, [l * (rh/gridmask),0], [l * (rh/gridmask),rh], 1)
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = cv2.resize(mask,(gridmask,gridmask), interpolation = cv2.INTER_AREA)
@@ -968,6 +953,10 @@ if __name__ == "__main__":
                             image = image * mask
                             image = pygame.surfarray.make_surface(image)
                             image = pygame.transform.scale(image,(rw,rh))
+                            # draw mask grid
+                            for l in range(0,gridmask):
+                                pygame.draw.line(image, gridcolor, [0,l * (rw/gridmask)], [rw,l * (rw/gridmask)], 1)
+                                pygame.draw.line(image, gridcolor, [l * (rh/gridmask),0], [l * (rh/gridmask),rh], 1)
                             windowSurfaceObj.blit(image,(0,bh))
                             # save mask
                             nmask = cv2.resize(mask,(gridmask,gridmask), interpolation = cv2.INTER_AREA)
@@ -978,8 +967,8 @@ if __name__ == "__main__":
                             fmask = np.flipud(fmask)
                             maskoff = np.all(mask)
                             
-                        # SHOW ZOOM (click on capture count button)
-                        elif bcol == 0 and brow == 13:
+                        # SHOW ZOOM 
+                        elif bcol == 1 and brow == 0:
                             smask = 0
                             zoom +=1
                             if zoom == 1:
@@ -987,18 +976,14 @@ if __name__ == "__main__":
                             if zoom > 1:
                                 zoom = 0
                                 pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
+                                text(ft,1,0,1,5,"    Zoom")
                                 show_last()
                                 
                         # RECORD VIDEO (right click)  
                         elif bcol == 1 and brow == 13:
                             smask = 0
-                            if event.button == 3:
+                            if event.button == 3 and not encoding:
                                 record = 1
-                            else:
-                                zoom +=1
-                                if zoom > 1:
-                                    zoom = 0
-                                    show_last()
 
                         elif bcol == 2 and brow == 13 and event.button == 2:
                             use_suntimes +=1
@@ -1076,17 +1061,10 @@ if __name__ == "__main__":
                                 pre_frames -=1
                                 pre_frames = max(pre_frames,1)
                             text(ft,3,13,2,1,str(pre_frames))
-                            if version == 2:
-                                picam2.stop_recording()
-                                picam2.stop_encoder()
-                                encoder.output = CircularOutput(buffersize = pre_frames * fps)
-                                picam2.start()
-                                picam2.start_encoder(encoder)
-                            else:
-                                picam2.stop_recording()
-                                pref = pre_frames * 1000
-                                circular = CircularOutput2(buffer_duration_ms=pref)
-                                picam2.start_recording(encoder, circular)
+                            picam2.stop_recording()
+                            pref = pre_frames * 1000
+                            circular = CircularOutput2(buffer_duration_ms=pref)
+                            picam2.start_recording(encoder, circular)
                             text(ft,3,13,2,4,str(pre_frames))
                             
                         # Video length
@@ -1148,6 +1126,8 @@ if __name__ == "__main__":
                                     picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long,"AnalogueGain": gain})
                                 text(ft,2,14,0,5," ")
                                 text(ft,2,14,2,4," ")
+                                text(ft,2,14,0,5,"Bitrate")
+                                text(ft,2,14,2,4,str(bitrate))
                                 
                         # METER MODE
                         elif bcol == 0 and brow == 15:
@@ -1167,7 +1147,7 @@ if __name__ == "__main__":
                                  picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
                             text(ft,0,15,2,4,str(meters[meter]))
                             
-                        # SHUTTER SPEED
+                        # SHUTTER SPEED / BITRATE
                         elif bcol == 2 and brow == 14 and mode == 0:
                             if event.button == 3 or event.button == 4:
                                 speed += 1000
@@ -1177,6 +1157,21 @@ if __name__ == "__main__":
                                 speed = max(1000,speed)
                             picam2.set_controls({"AeEnable": False,"ExposureTime": speed,"AnalogueGain": gain})
                             text(ft,2,14,2,4,str(speed))
+                        elif bcol == 2 and brow == 14 and mode != 0:
+                            if event.button == 3 or event.button == 4:
+                                bitrate += 1
+                                bitrate = min(20,bitrate)
+                            else:
+                                bitrate -=1
+                                bitrate = max(1,bitrate)
+                            bitrate2 = bitrate * 1000000
+                            # stop circular buffer
+                            picam2.close()
+                            picam2.stop()
+                            # restart circular buffer
+                            start_buffer()
+                            save_config = 1
+                            text(ft,2,14,2,4,str(bitrate))
                             
                         # GAIN
                         elif bcol == 3 and brow == 14:
@@ -1299,7 +1294,7 @@ if __name__ == "__main__":
                             text(ft,5,15,2,4,str(blue)[0:3])
                             
                         # show previous or EXIT from mask editting
-                        elif (bcol == 0 and brow == 0) or (smask == 1 and mousey > bh and mousey < bh + rh and (event.button == 3) and zoom == 0):
+                        elif (bcol == 0 and brow == 0 and event.button == 1) or (smask == 1 and mousey > bh and mousey < bh + rh and (event.button == 3) and zoom == 0):
                             smask = 0
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
@@ -1317,7 +1312,7 @@ if __name__ == "__main__":
                                 pygame.display.update()
                                 
                         # show next
-                        elif bcol == 1 and brow == 0:
+                        elif bcol == 0 and brow == 0 and event.button == 3:
                             smask = 0
                             pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
                             Pics = glob.glob(h_user + '/Pictures/*.jpg')
@@ -1593,7 +1588,6 @@ if __name__ == "__main__":
                             text(ft,2,0,1,0,"    ")
                             text(ft,5,0,1,0,"    ")
                             text(ft,3,0,1,0,"    ")
-                            #pygame.draw.rect(windowSurfaceObj,(0,0,0),Rect(0,bh,rw,rh))
 
                         if len(Pics) > 0 :
                             pic = Pics[p].split("/")
@@ -1632,6 +1626,7 @@ if __name__ == "__main__":
                         defaults[15] = v_length 
                         defaults[16] = use_buzz
                         defaults[17] = use_suntimes
+                        defaults[18] = bitrate
                         
                         with open(config_file, 'w') as f:
                             for item in defaults:
