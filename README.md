@@ -77,3 +77,6 @@ Default grid 32x32 but user settable. Set gridmask parameter.
 RIGHT / MIDDLE button click with CLEAR or SET FULL MASK
 
 To move window when ZOOMED click on review image.
+
+
+NOTE: there is a recent issue with positioning the windows, to try and fix see https://forums.raspberrypi.com/viewtopic.php?t=400321#p2386651
