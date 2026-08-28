@@ -99,9 +99,6 @@ add the following code
 '''
 
 
-'''
-
-
 
 press Ctrl & X, then Y to save
 
