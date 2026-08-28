@@ -85,7 +85,23 @@ sudo nano .config/labwc/rc.xml
 
 add the following code
 
-![code](code.jpg)
+'''
+
+<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <windowRules>
+    <windowRule title="Qt*Preview">
+      <action name="MoveTo" x="0" y="0" />
+    </windowRule>
+  </windowRules>
+</openbox_config>
+
+'''
+
+
+'''
+
+
 
 press Ctrl & X, then Y to save
 
