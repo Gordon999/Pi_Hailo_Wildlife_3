@@ -79,4 +79,28 @@ RIGHT / MIDDLE button click with CLEAR or SET FULL MASK
 To move window when ZOOMED click on review image.
 
 
-NOTE: there is a recent issue with positioning the windows, to try and fix see https://forums.raspberrypi.com/viewtopic.php?t=400321#p2386651
+NOTE: there is a recent issue with positioning the windows using wayland (the pi default) to try and fix this..
+
+sudo nano .config/labwc/rc.xml
+
+add the following code
+
+<?xml version="1.0"?>
+
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+     
+  <windowRules>
+       
+    <windowRule title="Qt*Preview">
+    
+      <action name="MoveTo" x="0" y="40" />
+      
+    </windowRule>
+    
+  </windowRules>
+  
+</openbox_config>
+
+press Ctrl & X, then Y to save
+
+run "labwc -r" 
