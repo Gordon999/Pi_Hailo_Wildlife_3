@@ -79,7 +79,7 @@ RIGHT / MIDDLE button click with CLEAR or SET FULL MASK
 To move window when ZOOMED click on review image.
 
 
-NOTE: there is a recent issue with positioning the windows using wayland (the pi default) to try and fix this..
+## NOTE: there is a recent issue with positioning the windows using wayland (the pi default) to try and fix this..
 
 sudo nano .config/labwc/rc.xml
 
