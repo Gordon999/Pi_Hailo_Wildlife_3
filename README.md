@@ -94,3 +94,5 @@ add the following code
 press Ctrl & X, then Y to save
 
 run "labwc -r" 
+
+see https://forums.raspberrypi.com/viewtopic.php?t=400321#p2386651
