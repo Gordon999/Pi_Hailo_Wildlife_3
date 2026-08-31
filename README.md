@@ -78,7 +78,9 @@ Zoom will zoom in to help with focussing the camera.
 To mask an area of detection LEFT click on the review window (when NOT ZOOMED). The masking is based on a grid.
 Default grid 32x32 but user settable. Set gridmask parameter.
 
-RIGHT / MIDDLE button click with CLEAR or SET FULL MASK
+MIDDLE button click with CLEAR or SET FULL MASK
+
+RIGHT mouse button will EXIT editting.
 
 To move window when ZOOMED click on review image.
 
