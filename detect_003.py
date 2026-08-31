@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v1.02
+# v1.05
 
 import argparse
 import cv2
@@ -48,7 +48,7 @@ UTC_offset   = 1       # set your local time offset to UTC in hours, 1.5 = 1 hr 
 use_suntimes = 0       # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
 
 # detection objects
-objects = ["cat","bear","dog","clock"]
+objects = ["cat","bear","dog"]
 
 # shutdown time
 sd_hour      = 0     # if sd_hour = 0 and sd_mins = 0 won't shutdown
@@ -213,7 +213,7 @@ sd_mins      = defaults[13]
 pre_frames   = defaults[14]
 v_length     = defaults[15]
 use_buzz     = defaults[16]
-use_suntimes = defaults[17]
+#use_suntimes = defaults[17]
 bitrate      = defaults[18]
 
 def suntimes():
@@ -356,6 +356,7 @@ yo       = 0
 smask    = 0
 start    = 1
 w        = 0
+rec_stop = 0
 
 # check if clock synchronised
 if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
@@ -565,7 +566,7 @@ def start_buffer():
     global picam2,encoding,vlen_time,circular,bitrate2,encoder,fps,model_h, model_w,video_w, video_h,pre_frames,cam1
     lsize = (model_w, model_h)
     picam2 = Picamera2()
-    picam2.start_preview(Preview.QT, x=0, y=0, width=model_w, height=model_h)
+    picam2.start_preview(Preview.QT, width=model_w, height=model_h)
     video_config = picam2.create_video_configuration(main={"size": (video_w,video_h), "format": "XRGB8888"},
                                              lores={"size": lsize, "format": "RGB888"},display="lores")
     picam2.configure(video_config)
@@ -668,7 +669,7 @@ if __name__ == "__main__":
             elif meter == 2:
                 picam2.set_controls({"AeMeteringMode": controls.AeMeteringModeEnum.Matrix})
             sta = time.monotonic()
-            
+
             # Process each low resolution camera frame.
             while True:
                 # get free ram space
@@ -687,7 +688,7 @@ if __name__ == "__main__":
                     cropped.blit(image, (0, 0), (int((v_width/2)-(rw/2)) - xo, int((v_height/2)-(rh/2)) - yo, rw, rh))
                     image = pygame.transform.rotate(cropped,int(90))
                     image = pygame.transform.flip(image,0,1)
-					windowSurfaceObj.blit(image,(0,bh))
+                    windowSurfaceObj.blit(image,(0,bh))
                     text(ft,1,0,1,4,"ZOOMED")
                     pygame.display.update()
                 else:
@@ -771,12 +772,13 @@ if __name__ == "__main__":
                     text(ft,1,13,2,5,str(td))
                     
                 # stop recording, if time out or low RAM
-                if encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit):
+                if (encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit)) or rec_stop == 1:
                     now = datetime.datetime.now()
                     timestamp2 = now.strftime("%y%m%d_%H%M%S")
                     print("Stopped Record", timestamp2)
                     circular.close_output()
                     encoding = False
+                    rec_stop = 0
                     startmp4 = time.monotonic()
                     rec_led.off()
                     text(ft,0,12,1,4,str(pic[4][:-4] + ".mp4"))
@@ -859,7 +861,7 @@ if __name__ == "__main__":
                                         shutil.move(Pics[xx],m_user + "/" + USB_Files[0] + "/Pictures/")
                             time.sleep(5)
                             # shutdown
-                            os.system("sudo shutdown -h now")
+                            os.system("shutdown -h now")
 
                 #check for any mouse button presses
                 for event in pygame.event.get():
@@ -985,6 +987,8 @@ if __name__ == "__main__":
                             smask = 0
                             if event.button == 3 and not encoding:
                                 record = 1
+                            elif event.button == 3 and encoding:
+                                rec_stop = 1
 
                         elif bcol == 2 and brow == 13 and event.button == 2:
                             use_suntimes +=1
@@ -1389,7 +1393,7 @@ if __name__ == "__main__":
                               try:
                                 pic = Pics[p].split("/")
                                 pipc = h_user + '/Videos/' + pic[4][:-3] + "mp4"
-                                # move mp4s to USB if present, and less than 90% full
+                                # move mp4s to USB if present, and less than 98% full
                                 USB_Files  = []
                                 USB_Files  = (os.listdir(m_user))
                                 if len(USB_Files) > 0:
@@ -1401,7 +1405,7 @@ if __name__ == "__main__":
                                     usedusb = os.statvfs(m_user + "/" + USB_Files[0] + "/")
                                     USB_storage = ((1 - (usedusb.f_bavail / usedusb.f_blocks)) * 100)
                                     print(USB_storage)
-                                if len(USB_Files) > 0 and USB_storage < 90 and os.path.exists(pipc):
+                                if len(USB_Files) > 0 and USB_storage < 98 and os.path.exists(pipc):
                                     if not os.path.exists(m_user + "/" + USB_Files[0] + "/Pictures/" + pic[4]):
                                         shutil.move(Pics[p],m_user + "/" + USB_Files[0] + "/Pictures/")
                                     if os.path.exists(pipc):
@@ -1435,7 +1439,7 @@ if __name__ == "__main__":
                             Videos.sort()
                             if len(Pics) > 0 or len(Videos) > 0:
                               try:
-                                # move mp4s and jpgs to USB if present, and USB storage < 90% full
+                                # move mp4s and jpgs to USB if present, and USB storage < 98% full
                                 USB_Files  = []
                                 USB_Files  = (os.listdir(m_user))
                                 if len(USB_Files) > 0:
@@ -1447,7 +1451,9 @@ if __name__ == "__main__":
                                         os.system('mkdir ' + m_user + "/'" + USB_Files[0] + "'/Pictures")
                                     usedusb = os.statvfs(m_user + "/" + USB_Files[0] + "/")
                                     USB_storage = ((1 - (usedusb.f_bavail / usedusb.f_blocks)) * 100)
-                                if len(USB_Files) > 0 and USB_storage < 90:
+                                    print(USB_storage)
+                                if len(USB_Files) > 0 and USB_storage < 98:
+                                    print (len(Videos))
                                     for w in range(0,len(Videos)):
                                         text(ft,0,13,1,4,str(w+1) + "/" + str(len(Videos)))
                                         vid = Videos[w].split("/")
@@ -1455,6 +1461,7 @@ if __name__ == "__main__":
                                         image = pygame.transform.scale(image,(rw,rh))
                                         windowSurfaceObj.blit(image,(0,bh))
                                         pygame.display.update()
+                                        print(m_user + "/" + USB_Files[0] + "/Videos/" + vid[4])
                                         if not os.path.exists(m_user + "/" + USB_Files[0] + "/Videos/" + vid[4]):
                                             shutil.move(Videos[w],m_user + "/" + USB_Files[0] + "/Videos/")
                                     for w in range(0,len(Pics)):
