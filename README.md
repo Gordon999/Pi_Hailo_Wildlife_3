@@ -31,7 +31,7 @@ To setup the hailo..
 
      sudo reboot
 
-     git clone --depth 1 https://github.com/raspberrypi/picamera2
+     git clone --depth 1 https://github.com/raspberrypi/picamera2-examples
 
 reboot
 
