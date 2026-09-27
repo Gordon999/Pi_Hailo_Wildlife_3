@@ -39,13 +39,13 @@ sudo apt install python3-opencv -y
 
 sudo pip install ephem --break-system-packages
 
+copy detect_003.py to your /home/USERNAME directory
+
 to autostart at boot if using labwc...
 
 (note: change XXXX to your username)
 
 sudo nano /home/XXXX/.config/labwc/autostart
-
-copy detect_003.py and coco.txt to your /home/USERNAME directory
 
 type in...
 
@@ -63,13 +63,9 @@ Runs a pre-capture buffer of approx 5 seconds by default
 
 you can set the objects to detect in line 51, objects = ["cat","bear","bird"], the objects must be in coco.txt file
 
-Copy detect_003.py into /home/USERNAME/picamera2/examples/hailo/
-
 Videos saved in /home/USERNAME/Videos
 
 to run ... 
-
-cd /home/USERNAME/picamera2/examples/hailo/
 
 python3 detect_003.py
 
