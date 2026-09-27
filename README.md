@@ -45,6 +45,8 @@ to autostart at boot if using labwc...
 
 sudo nano /home/XXXX/.config/labwc/autostart
 
+copy detect_003.py and coco.txt to your /home/USERNAME directory
+
 type in...
 
 /usr/bin/python3 /home/XXXX/detect_003.py
