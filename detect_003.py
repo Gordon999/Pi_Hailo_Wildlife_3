@@ -19,7 +19,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v1.07
+# v1.08
 
 import argparse
 import cv2
@@ -471,7 +471,7 @@ else:
     text(ft,5,13,2,4,"OFF")
     
 # wait for things to settle...
-#time.sleep(10)
+time.sleep(10)
 
 def show_last():
   # show last captured image, if present  
@@ -596,7 +596,14 @@ if __name__ == "__main__":
     else:
         parser.add_argument("-m", "--model", help="Path for the HEF model.",
                         default="/usr/share/hailo-models/yolov8s_h8l.hef")
-    parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2-examples/examples/hailo/coco.txt",
+    if os.path.exists("/home/" + user + "/picamera2/examples/hailo/coco.txt"):
+        parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2/examples/hailo/coco.txt",
+                        help="Path to a text file containing labels.")
+    elif os.path.exists("/home/" + user + "/picamera2-examples/examples/hailo/coco.txt"):
+        parser.add_argument("-l", "--labels", default="/home/" + user + "/picamera2-examples/examples/hailo/coco.txt",
+                        help="Path to a text file containing labels.")
+    else:
+        parser.add_argument("-l", "--labels", default="coco.txt",
                         help="Path to a text file containing labels.")
     parser.add_argument("-s", "--score_thresh", type=float, default=0.65,
                         help="Score threshold, must be a float between 0 and 1.")
