@@ -10,7 +10,7 @@ Pi5 + Hailo HAT (8L or 10H) + PI Camera to capture Wildlife videos in MP4.
 
 ## My Camera setup...
 
-note I have now changed to the Pi 5" Touch2 DSI display...
+note I have now changed to the Pi 5" Touch2 DSI display... and it can use ai hat+ (8L) or ai hat +2 (10H)
 
 ![screenshot](camera.jpg)
 
