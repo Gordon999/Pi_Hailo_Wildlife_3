@@ -61,7 +61,7 @@ v_width and v_height are set for a Pi GS camera, you may need to change to suit 
 
 Runs a pre-capture buffer of approx 5 seconds by default
 
-you can set the objects to detect in line 51, objects = ["cat","bear","bird"], the objects must be in coco.txt file
+you can set the objects to detect in line 54, objects = ["cat","bear","bird"], the objects must be in coco.txt file
 
 Videos saved in /home/USERNAME/Videos
 
@@ -81,6 +81,8 @@ MIDDLE button click with CLEAR or SET FULL MASK
 RIGHT mouse button will EXIT editting.
 
 To move window when ZOOMED click on review image.
+
+MIDDLE button click on Shutdown/Sun R,S button will switch to Sunrise/sunset startup/shutdown.
 
 
 ## NOTE: there is a recent issue with positioning the windows using wayland (the pi default) to try and fix this..
