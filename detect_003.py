@@ -19,19 +19,21 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
-# v1.08
+# v1.22
 
 import argparse
 import cv2
 from picamera2 import MappedArray, Picamera2, Preview
 from picamera2.devices import Hailo, hailo_architecture
 from picamera2.encoders import H264Encoder
+from picamera2.outputs import CircularOutput2, PyavOutput
 from libcamera import controls
 from libcamera import Transform
 import time
 import os
 import glob
-import datetime
+#import datetime
+from datetime import datetime
 from datetime import timedelta
 import shutil
 from gpiozero import LED
@@ -44,7 +46,8 @@ import numpy as np
 your_lat     = '51.00' # set your location latitude
 your_lon     = '-1.00' # set your location longtitude
 your_elev    = 100     # set your location height in metres
-UTC_offset   = 1       # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
+UTC_offset   = 0       # set your local time offset to UTC in hours, 1.5 = 1 hr 30mins
+auto_offset  = 1       # set UTC_offset automatically 1 = yes
 use_suntimes = 0       # set to 1 to use sunrise & sunset times to start recording & shutdown (sudo pip install ephem)
 
 # detection objects
@@ -58,22 +61,32 @@ sd_mins      = 0
 e_buzz       = 12    # gpio ouput for buzzer
 use_buzz     = 1     # sound buzzer on capture, 0 off, 1 on starting video, 2 on detection
 
-# set variables
-screen       = 1     # 1 = 1280 x 720, 2 = 800 x 480
+# set screen size
+pygame.init()
+infoObject = pygame.display.Info()
+if infoObject.current_w >= 1280:
+	screen = 1 # 1280 x 720
+else:
+	screen = 2 # 800 x 480
+
+# set variables * items will be overwritten if changed whilst running
 show_detects = 1     # show detections, 1 = on stills, 2 = on video & stills, 0 = none
 log          = 0     # set to 1 to make a log of detections in detect_log.txt
-v_width      = 1088  # video width
-v_height     = 1088  # video height
-v_length     = 10    # seconds, minimum video length
-pre_frames   = 5     # seconds, defines length of pre-detection buffer
-h_flip       = 0     # set to 1 to flip horizontally 
-v_flip       = 0     # set to 1 to flip vertically
-mp4_timer    = 10    # seconds, move MP4s to SD card after this time if no detections
+v_width      = 1088  # video width 
+v_height     = 1088  # video height 
+sensor_crop  = 6     # use crop on HQ camera, size = sensor_crop * 120, minimum 6 *
+sensor_mode  = 3     # set HQ camera mode, 3 = 4056x2160:10
+v_length     = 10    # seconds, minimum video length *
+pre_frames   = 5     # seconds, defines length of pre-detection buffer *
+mp4_timer    = 60    # seconds, move MP4s to SD card after this time if no detections
 mp4_anno     = 1     # show timestamps on video, 1 = yes, 0 = no
+UTC_timer    = 300   # check UTC offset
 led          = 21    # recording led gpio
 zmtime       = 30    # zoom timeout
 gridmask     = 32    # resolution of masking grid, eg 4 to 64.
 gridcolor    = (255,255,255) # mask grid color
+maskcolor    = (200,0,0) # mask squares color
+hdr          = 0
 
 # default camera settings, note these will be overwritten if changed whilst running
 mode         = 1     # camera mode, (see modes below), 1 = normal
@@ -82,7 +95,7 @@ bitrate      = 8     # video bitrate in MB
 speed        = 1000  # manual shutter speed in mS
 gain         = 0     # set camera gain, 0 = auto
 meter        = 2     # set meter mode, (see meters below), 2 = Matrix
-brightness   = 0     # set brightness
+brightness   = 0     # set brightness (-10 to 10)
 contrast     = 10    # set contrast
 ev           = 0     # set eV
 sharpness    = 7     # set sharpness
@@ -90,16 +103,13 @@ saturation   = 10    # set saturation
 awb          = 0     # set awb mode, (see awbs below), 0 = auto
 red          = 10    # set red, only in awb custom mode
 blue         = 10    # set blue, only in awb custom mode
+hdr          = 0     # Night mode, 1 = ON
+noise        = 0     # Noise reduction, 0 = OFF, 1 = FAST, 2 = High Quality
 modes        = ['manual','normal','short','long']
 meters       = ["Center","Spot","Matrix"]
 awbs         = ['auto','tungsten','fluorescent','indoor','daylight','cloudy','custom']
-
-# mp4_annotation parameters
-colour       = (255, 255, 255)
-origin       = (20, int(v_height - 25))
-font         = cv2.FONT_HERSHEY_SIMPLEX
-scale        = 1
-thickness    = 2
+noises       = ['Off','Fast','HighQ']
+hdrs         = ['Off','SingleEx','MultiEx','Night']
 
 # ram limit
 ram_limit    = 150   # MB, stops recording if ram below this
@@ -133,8 +143,6 @@ else: # 800 x 480
     ch = 480
     ds = 0
     dg = 0
-    
-from picamera2.outputs import CircularOutput2, PyavOutput
 
 # load a pre-defined mask if available 
 if os.path.exists('Mask1.bmp'):
@@ -176,14 +184,13 @@ else:
 x = cw + ds + dg
 y = 1
 os.environ['SDL_VIDEO_WINDOW_POS'] = "%d,%d" % (x,y)
-pygame.init()
 windowSurfaceObj = pygame.display.set_mode((rw,ch),1, 24)
 pygame.display.set_caption("Review Captures" )
 
 # check Det_ConfigX.txt exists, if not then write default values
-config_file = "Det_Config10.txt"
+config_file = "Det_Config17.txt"
 if not os.path.exists(config_file):
-    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz,use_suntimes,bitrate]
+    defaults = [mode,speed,gain,meter,brightness,contrast,ev,sharpness,saturation,awb,red,blue,sd_hour,sd_mins,pre_frames,v_length,use_buzz,use_suntimes,bitrate,hdr,noise,sensor_crop]
     with open(config_file, 'w') as f:
         for item in defaults:
             f.write("%s\n" % item)
@@ -213,15 +220,49 @@ sd_mins      = defaults[13]
 pre_frames   = defaults[14]
 v_length     = defaults[15]
 use_buzz     = defaults[16]
-#use_suntimes = defaults[17]
+use_suntimes = defaults[17]
 bitrate      = defaults[18]
+hdr          = defaults[19]
+noise        = defaults[20]
+sensor_crop  = defaults[21]
+
+# mp4_annotation parameters
+colour       = (255, 255, 255)
+if sensor_crop == 0:
+    origin       = (20, int(v_height - 25))
+else:
+	origin       = (20, int((sensor_crop * 120) - 25))
+font         = cv2.FONT_HERSHEY_SIMPLEX
+scale        = 1
+thickness    = 2
+
+# check if clock synchronised
+if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
+    synced = 1
+else:
+    synced = 0
+
+def UTC_offsetter():
+    global UTC_offset
+    # get UTC offset
+    data = os.popen("timedatectl").read().split("\n")
+    if len(data) == 8:
+        l = datetime.strptime(str(data[0])[31:50], "%Y-%m-%d %H:%M:%S")
+        u = datetime.strptime(str(data[1])[31:50], "%Y-%m-%d %H:%M:%S")
+        th = str(l-u)
+        ti = th.split(":")
+        UTC_offset = int(ti[0]) + int(ti[1])/60
+        print("UTC_offset",UTC_offset)
+
+if auto_offset == 1:    
+    UTC_offsetter()
 
 def suntimes():
     global sd_hour,sd_mins,sr_hour,sr_mins,UTC_offset
     sun = ephem.Sun()
     # sunrise
     sunrise  = you.next_rising(sun)
-    sunriset = datetime.datetime.strptime(str(sunrise), '%Y/%m/%d %H:%M:%S')
+    sunriset = datetime.strptime(str(sunrise), '%Y/%m/%d %H:%M:%S')
     sr_hour  = int(sunriset.hour)
     sr_mins  = int(sunriset.minute)
     # adjust SUNRISE for UTC offset
@@ -241,7 +282,7 @@ def suntimes():
         sr_hour += 24
     # sunset
     sunset   = you.next_setting(sun)
-    sunsett  = datetime.datetime.strptime(str(sunset), '%Y/%m/%d %H:%M:%S')
+    sunsett  = datetime.strptime(str(sunset), '%Y/%m/%d %H:%M:%S')
     sd_hour  = int(sunsett.hour)
     sd_mins  = int(sunsett.minute)
     # adjust SUNSET for UTC offset
@@ -298,7 +339,7 @@ def button(col,row,bw,bh,bColor):
     pygame.draw.line(windowSurfaceObj,whiteColor,(bx,by),(bx+bw-1,by),1)
     pygame.draw.line(windowSurfaceObj,dgryColor,(bx,by+bh-1),(bx+bw-1,by+bh-1),1)
     pygame.draw.line(windowSurfaceObj,dgryColor,(bx+bw-2,by),(bx+bw-2,by+bh),2)
-    pygame.display.update(bx, by, bw-1, bh)
+    pygame.display.update() #bx, by, bw-1, bh)
 
 # write text on a button
 def text(fs,col,row,line,bColor,msg):
@@ -342,6 +383,8 @@ start_up = time.monotonic()
 startmp4 = time.monotonic()
 pftimer  = time.monotonic()
 zmtimer  = time.monotonic()
+lowtimer = time.monotonic()
+UTCtimer = time.monotonic()
 rec_led  = LED(led)
 rec_led.off()
 p        = 0
@@ -358,12 +401,7 @@ start    = 1
 w        = 0
 rec_stop = 0
 
-# check if clock synchronised
-if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
-    synced = 1
-else:
-    synced = 0
-    
+   
 #check Pi model.
 Pi = -1
 model = os.popen("cat /proc/device-tree/model").read()
@@ -386,6 +424,16 @@ def Camera_Version():
             cam1 = cam0[1][1:7]
 Camera_Version()
 
+# set Crop
+if sensor_crop > 0:
+    if cam1 == "imx477":  # HQ camera
+        v_width  = sensor_crop * 120
+        v_height = sensor_crop * 120
+    elif cam1 == "imx296": # GS camera, don't crop
+	    sensor_crop = 0
+	    sensor_mode = 0
+
+   
 # Draw Screen
 for y in range(0,6):
     button(y,0,bw,bh,0)
@@ -421,6 +469,11 @@ if cam1 != "ov9281":
         text(ft,4,15,2,4,str(red)[0:3])
         text(ft,5,15,0,5,"Blue")
         text(ft,5,15,2,4,str(blue)[0:3])
+    else:
+        text(ft,4,15,0,5,"Noise")
+        text(ft,4,15,2,4,str(noises[noise]))
+        text(ft,5,15,0,5,"HDR")
+        text(ft,5,15,2,4,hdrs[hdr])
 if mode == 0:
     text(ft,2,14,0,5,"Speed")
     text(ft,2,14,2,4,str(speed))
@@ -429,7 +482,7 @@ else:
     text(ft,2,14,2,4,str(bitrate))
 text(ft,3,14,0,5,"Gain")
 if gain != 0:
-    text(ft,3,14,2,4,str(gain))
+    text(ft,3,14,2,4,str(int(gain)))
 else:
     text(ft,3,14,2,4,"Auto")
 text(ft,4,14,0,5,"Brightness")
@@ -442,7 +495,6 @@ if use_suntimes == 1:
 	sr_tim = (int(sr_hour) * 60) + int(sr_mins)
 else:
 	sr_tim = 0
-	
 sd_tim = (int(sd_hour) * 60) + int(sd_mins)
 sd_h   = "0" + str(sd_hour)
 sd_hr  = sd_h[-2:]
@@ -464,14 +516,15 @@ text(ft,3,13,0,5,"Pre S")
 text(ft,3,13,2,4,str(pre_frames))
 text(ft,4,13,0,5,"Video S")
 text(ft,4,13,2,4,str(v_length))
-text(ft,5,13,0,5,"Buzzer")
-if use_buzz == 1:
-    text(ft,5,13,2,4,"ON")
-else:
-    text(ft,5,13,2,4,"OFF")
+if cam1 == "imx477":
+    text(ft,5,13,0,5,"Crop")
+    if sensor_crop == 0:
+        text(ft,5,13,2,4,str(sensor_crop * 120))
+    else:
+	    text(ft,5,13,2,3,str(sensor_crop * 120))
     
 # wait for things to settle...
-time.sleep(10)
+#time.sleep(10)
 
 def show_last():
   # show last captured image, if present  
@@ -530,7 +583,7 @@ def draw_objects(request): # on video & stills
                 x0, y0, x1, y1 = bbox
                 label = f"{class_name} %{int(score * 100)}"
                 cv2.rectangle(m.array, (x0, y0), (x1, y1), (0, 255, 0, 0), 4)
-                cv2.puttext(ft,m.array, label, (x0 + 5, y0 + 45),
+                cv2.putText(m.array, label, (x0 + 5, y0 + 45),
                             cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0, 0), 3, cv2.LINE_AA)
                             
 def draw_box(): # on stills only
@@ -563,22 +616,34 @@ def apply_timestamp(request):
           
 # start circular buffer
 def start_buffer():
-    global picam2,encoding,vlen_time,circular,bitrate2,encoder,fps,model_h, model_w,video_w, video_h,pre_frames,cam1
+    global picam2,encoding,vlen_time,circular,bitrate2,encoder,fps,model_h, model_w,video_w, video_h,pre_frames,cam1,sensor_crop,sensor_mode
     lsize = (model_w, model_h)
-    picam2 = Picamera2()
+    if cam1 == "imx477" and os.path.exists("/usr/share/libcamera/ipa/rpi/pisp/imx477m.json"):
+        tuning = Picamera2.load_tuning_file("imx477m.json")
+        picam2 = Picamera2(tuning=tuning)
+    else:
+        picam2 = Picamera2()
     picam2.start_preview(Preview.QT, width=model_w, height=model_h)
-    video_config = picam2.create_video_configuration(main={"size": (video_w,video_h), "format": "XRGB8888"},
+    if sensor_crop == 0:
+        video_config = picam2.create_video_configuration(main={"size": (video_w,video_h), "format": "XRGB8888"},
                                              lores={"size": lsize, "format": "RGB888"},display="lores")
+    else:
+        video_config = picam2.create_video_configuration(main={"size": (video_w,video_h), "format": "XRGB8888"},
+                                             lores={"size": lsize, "format": "RGB888"},display="lores",raw=picam2.sensor_modes[sensor_mode])
     picam2.configure(video_config)
     encoder = H264Encoder(bitrate2, repeat=True)
     pref = pre_frames * 1000
     circular = CircularOutput2(buffer_duration_ms=pref)
     picam2.pre_callback = apply_timestamp
-    if cam1 == "imx708" or cam1 == 'ov64a4': # Pi v3 or Arducam 64MB OWLSIGHT cameras
+    picam2.start_recording(encoder, circular)
+    if cam1 == "imx708" or cam1 == 'ov64a4': # AF for Pi v3 or Arducam 64MB OWLSIGHT cameras
         picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
         picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
     picam2.set_controls({"FrameRate": fps})
-    picam2.start_recording(encoder, circular)
+    if sensor_crop > 0: # crop HQ camera
+        offset = [int((2028) - (video_w/2)),int((1520) - (video_h/2))]
+        size   = [video_w,video_h]
+        picam2.set_controls({"ScalerCrop": offset + size})
     encoding = False
     vlen_time = 0
         
@@ -644,6 +709,20 @@ if __name__ == "__main__":
             picam2.set_controls({"ExposureValue": ev/10})
             picam2.set_controls({"Sharpness": sharpness})
             picam2.set_controls({"Saturation": saturation/10})
+            if hdr == 0:
+                picam2.set_controls({"HdrMode": controls.HdrModeEnum.Off})
+            elif hdr == 1:
+                picam2.set_controls({"HdrMode": controls.HdrModeEnum.SingleExposure})
+            elif hdr == 2:
+                picam2.set_controls({"HdrMode": controls.HdrModeEnum.MultiExposure})
+            else:
+                picam2.set_controls({"HdrMode": controls.HdrModeEnum.Night})
+            if noise == 0:
+                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Off})
+            elif noise == 1:
+                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Fast})
+            else:
+                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.HighQuality})
             if awb == 0:
                 picam2.set_controls({"AwbEnable": True,"AwbMode": controls.AwbModeEnum.Auto})
             elif awb == 1:
@@ -731,17 +810,14 @@ if __name__ == "__main__":
                             record = 0
                             if show_detects == 1:
                                 draw_box()
-                            text(ft,1,13,1,6,"________")
-                            text(ft,1,13,2,6,"________")
-                            text(ft,1,13,0,5,"Recording")
                             if log == 1:
-                                now = datetime.datetime.now()
+                                now = datetime.now()
                                 timestamp = now.strftime("%y%m%d_%H%M%S")
                                 with open("detect_log.txt", 'a') as f:
                                     f.write(timestamp + " " + objects[d] + "\n" )
                             # start recording
                             if not encoding and freeram > ram_limit:
-                                now = datetime.datetime.now()
+                                now = datetime.now()
                                 sr_time = now.replace(hour=int(sr_hour),minute=int(sr_mins), second=1, microsecond=0)
                                 if use_suntimes == 0 or (use_suntimes == 1 and now > sr_time):
                                     sta = time.monotonic()
@@ -749,6 +825,9 @@ if __name__ == "__main__":
                                     circular.open_output(PyavOutput("/run/shm/" + timestamp +".mp4"))
                                     encoding = True
                                     print("New  Detection",timestamp + " " + objects[d])
+                                    text(ft,1,13,1,6,"________")
+                                    text(ft,1,13,2,6,"________")
+                                    text(ft,1,13,0,5,"Recording")
                                     rec_led.on()
                                     # sound buzzer
                                     if use_buzz == 1:
@@ -780,7 +859,7 @@ if __name__ == "__main__":
                     
                 # stop recording, if time out or low RAM
                 if (encoding and (time.monotonic() - startrec > v_length + pre_frames or freeram <= ram_limit)) or rec_stop == 1:
-                    now = datetime.datetime.now()
+                    now = datetime.now()
                     timestamp2 = now.strftime("%y%m%d_%H%M%S")
                     print("Stopped Record", timestamp2)
                     circular.close_output()
@@ -793,6 +872,18 @@ if __name__ == "__main__":
                     text(ft,1,13,1,4,"          ")
                     text(ft,1,13,2,4,"          ")
                     text(ft,1,13,1,3,"RECORD")
+                
+                # check UTC offset
+                if time.monotonic() - UTCtimer > UTC_timer and not encoding:
+                    UTCtimer = time.monotonic()
+                    # check if clock synchronised
+                    if "System clock synchronized: yes" in os.popen("timedatectl").read().split("\n"):
+                        synced = 1
+                    else:
+                        synced = 0
+                    if auto_offset == 1: 
+                        UTC_offsetter()
+                        suntimes()
 
                 # move mp4s from RAM to SD card
                 if time.monotonic() - startmp4 > mp4_timer and not encoding:
@@ -843,7 +934,7 @@ if __name__ == "__main__":
                             else:
                                 text(ft-3,2,13,2,4,str(sr_hr) + ":" + str(sr_mn) + "," + str(sd_hr) + ":" + str(sd_mn))
                         # check current hour and shutdown
-                        now = datetime.datetime.now()
+                        now = datetime.now()
                         sd_time = now.replace(hour=int(sd_hour),minute=int(sd_mins), second=0, microsecond=0)
                         if now >= sd_time and time.monotonic() - start_up > 300 and synced == 1:
                             # move jpgs and mp4s to USB if present
@@ -938,6 +1029,8 @@ if __name__ == "__main__":
                         
                         # set mask (left click on review window)
                         elif mousey > bh and mousey < bh + rh and event.button == 1 and zoom == 0:
+                            mxc = -1
+                            myc = -1
                             if smask == 1:
                                 mz = int(model_w/gridmask)
                                 mx = int(mousex * (model_w/rw))
@@ -963,6 +1056,15 @@ if __name__ == "__main__":
                             image = image * mask
                             image = pygame.surfarray.make_surface(image)
                             image = pygame.transform.scale(image,(rw,rh))
+                            # draw mask squares in gridcolor
+                            mz = int(model_w/gridmask)
+                            for mx in range(0,gridmask):
+                                for my in range(0,gridmask):
+                                    if mask[mx*mz][my*mz][0] == 0:
+                                        if screen == 1:
+                                            pygame.draw.rect(image,maskcolor,Rect(int((mx*mz)*.75),int((my*mz)*.75),int(mz*.75),int(mz*.75)))
+                                        else:
+                                            pygame.draw.rect(image,maskcolor,Rect(int((mx*mz)*.5),int((my*mz)*.5),int(mz*.5),int(mz*.5)))
                             # draw mask grid
                             for l in range(0,gridmask):
                                 pygame.draw.line(image, gridcolor, [0,l * (rw/gridmask)], [rw,l * (rw/gridmask)], 1)
@@ -1087,18 +1189,44 @@ if __name__ == "__main__":
                                 v_length -=1
                                 v_length = max(v_length,5)
                             text(ft,4,13,2,4,str(v_length))
+                          
+                        # Crop
+                        elif bcol == 5 and brow == 13 and cam1 == "imx477" and encoding == False:
+                            if event.button == 3 or event.button == 4:
+                                sensor_crop +=1
+                                sensor_crop = min(sensor_crop,18)
+                            else:
+                                sensor_crop -=1
+                                sensor_crop = max(sensor_crop,6)
+                            if sensor_crop == 0:
+                                text(ft,5,13,2,4,str(sensor_crop * 120))
+                            else:
+	                            text(ft,5,13,2,3,str(sensor_crop * 120))
+                            if sensor_crop > 0: # crop HQ camera
+                                v_width  = sensor_crop * 120
+                                v_height = sensor_crop * 120
+                                video_w  = sensor_crop * 120
+                                video_h  = sensor_crop * 120
+                                origin   = (20, int((sensor_crop * 120) - 25))
+                                offset   = [int((2028) - (video_w/2)),int((1520) - (video_h/2))]
+                                size     = [video_w,video_h]
+                                # stop circular buffer
+                                picam2.close()
+                                picam2.stop()
+                                # restart circular buffer
+                                start_buffer()
+                                save_config = 1
+                            save_config = 1
                             
                         # Buzzer ON/OFF
-                        elif bcol == 5 and brow == 13:
+                        elif bcol == 0 and brow == 13:
                             if event.button == 3 or event.button == 4:
                                 use_buzz = 1
-                                text(ft,5,13,2,4,"ON")
                                 buzzer.value = 0.01
                                 time.sleep(0.5)
                                 buzzer.value = 0
                             else:
                                 use_buzz = 0
-                                text(ft,5,13,2,4,"OFF")
                                                    
                         # camera control
                         # EV
@@ -1169,7 +1297,7 @@ if __name__ == "__main__":
                                 speed = max(1000,speed)
                             picam2.set_controls({"AeEnable": False,"ExposureTime": speed,"AnalogueGain": gain})
                             text(ft,2,14,2,4,str(speed))
-                        elif bcol == 2 and brow == 14 and mode != 0:
+                        elif bcol == 2 and brow == 14 and mode != 0 and encoding == False:
                             if event.button == 3 or event.button == 4:
                                 bitrate += 1
                                 bitrate = min(20,bitrate)
@@ -1195,7 +1323,7 @@ if __name__ == "__main__":
                                 gain = max(0,gain)
                             picam2.set_controls({"AnalogueGain": gain})
                             if gain != 0:
-                                text(ft,3,14,2,4,str(gain))
+                                text(ft,3,14,2,4,str(int(gain)))
                             else:
                                 text(ft,3,14,2,4,"Auto")
                                 
@@ -1203,10 +1331,10 @@ if __name__ == "__main__":
                         elif bcol == 4 and brow == 14:
                             if event.button == 3 or event.button == 4:
                                 brightness +=1
-                                brightness = min(brightness,20)
+                                brightness = min(brightness,10)
                             else:
                                 brightness -=1
-                                brightness = max(brightness,0)
+                                brightness = max(brightness,-10)
                             picam2.set_controls({"Brightness": brightness/10})
                             text(ft,4,14,2,4,str(brightness))
                         
@@ -1274,10 +1402,10 @@ if __name__ == "__main__":
                                 text(ft,4,15,2,4,str(red)[0:3])
                                 text(ft,5,15,2,4,str(blue)[0:3])
                             else:
-                                text(ft,4,15,0,5,"   ")
-                                text(ft,5,15,0,5,"    ")
-                                text(ft,4,15,2,4,"    ")
-                                text(ft,5,15,2,4,"    ")
+                                text(ft,5,15,0,5,"Night")
+                                text(ft,5,15,2,4,str(hdr))
+                                text(ft,4,15,0,5,"Noise")
+                                text(ft,4,15,2,4,str(noises[noise]))
 
                         # RED
                         elif bcol == 4 and brow == 15 and awb == 6:
@@ -1304,7 +1432,41 @@ if __name__ == "__main__":
                             picam2.set_controls({"ColourGains": cg})
                             text(ft,4,15,2,4,str(red)[0:3])
                             text(ft,5,15,2,4,str(blue)[0:3])
+                        
+                        # Noise Reduction
+                        elif bcol == 4 and brow == 15 and awb != 6:
+                            if event.button == 1 or event.button == 5:
+                                noise -=1
+                                noise = max(noise,0)
+                            else:
+                                noise +=1
+                                noise = min(noise,2)
+                            text(ft,4,15,2,4,str(noises[noise]))
+                            if noise == 0:
+                                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Off})
+                            elif noise == 1:
+                                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Fast})
+                            else:
+                                picam2.set_controls({"NoiseReductionMode": controls.draft.NoiseReductionModeEnum.HighQuality})
                             
+                        # HDR
+                        elif bcol == 5 and brow == 15 and awb != 6:
+                            if event.button == 1 or event.button == 5:
+                                hdr -=1
+                                hdr = max(hdr,0)
+                            else:
+                                hdr += 1
+                                hdr = min(hdr,3)
+                            if hdr == 0:
+                                picam2.set_controls({"HdrMode": controls.HdrModeEnum.Off})
+                            elif hdr == 1:
+                                picam2.set_controls({"HdrMode": controls.HdrModeEnum.SingleExposure})
+                            elif hdr == 2:
+                                picam2.set_controls({"HdrMode": controls.HdrModeEnum.MultiExposure})
+                            else:
+                                picam2.set_controls({"HdrMode": controls.HdrModeEnum.Night})
+                            text(ft,5,15,2,4,hdrs[hdr])
+                                
                         # show previous or EXIT from mask editting
                         elif (bcol == 0 and brow == 0 and event.button == 1) or (smask == 1 and mousey > bh and mousey < bh + rh and (event.button == 3) and zoom == 0):
                             smask = 0
@@ -1642,6 +1804,9 @@ if __name__ == "__main__":
                         defaults[16] = use_buzz
                         defaults[17] = use_suntimes
                         defaults[18] = bitrate
+                        defaults[19] = hdr
+                        defaults[20] = noise
+                        defaults[21] = sensor_crop
                         
                         with open(config_file, 'w') as f:
                             for item in defaults:
